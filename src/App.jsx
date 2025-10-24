@@ -103,14 +103,15 @@ export default function App() {
           )}
 
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            {/* <Route path="/" element={<Dashboard />} /> */}
+             <Route path="/" element={<EconomicValueDashboard apiBase={API_BASE} />} />
             <Route path="/activity" element={<ActivityLog apiBase={API_BASE} />} />
             <Route path="/boats" element={<Boats apiBase={API_BASE} />} />
             <Route path="/vendors" element={<Vendors apiBase={API_BASE} />} />
             <Route path="/marina-activity" element={<MarinaActivity />} />
             <Route path="/settings" element={<SiteSettings />} />
             <Route path="/users" element={<Users />} />
-            <Route path="/economic-value" element={<EconomicValueDashboard apiBase={API_BASE} />} />
+           
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
