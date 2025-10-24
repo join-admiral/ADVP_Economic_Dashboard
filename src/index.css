@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+:root {
+  --font-sans: "Inter Regular", sans-serif;
+
+  /* Light mode tokens */
+  --background: 0 0% 100%;
+  --foreground: 222.2 47.4% 11.2%;
+
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 47.4% 11.2%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 47.4% 11.2%;
+
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+
+  --ring: 215 20.2% 65.1%;
+
+  --radius: 0.5rem;
+
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 48 96% 53%;
+  --warning-foreground: 0 0% 0%;
+}
+
+/* DARK MODE TOKENS */
+.dark {
+  --background: 224 71% 4%;
+  --foreground: 213 31% 91%;
+
+  --muted: 223 47% 11%;
+  --muted-foreground: 215.4 16.3% 56.9%;
+
+  --popover: 224 71% 4%;
+  --popover-foreground: 215 20.2% 65.1%;
+
+  --card: 224 71% 4%;
+  --card-foreground: 213 31% 91%;
+
+  --border: 216 34% 17%;
+  --input: 216 34% 17%;
+
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+
+  --secondary: 222.2 47.4% 11.2%;
+  --secondary-foreground: 210 40% 98%;
+
+  --accent: 216 34% 17%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+
+  --ring: 216 34% 17%;
+
+  --radius: 0.5rem;
+
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 48 96% 53%;
+  --warning-foreground: 0 0% 0%;
+}
+
+/* Apply background + text automatically */
+body {
+  @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors duration-300;
+}
+/* -------------------------------------------------------
+   Dark-mode bridges for legacy Tailwind color classes.
+   These let existing components (that still use bg-white,
+   border-slate-200, text-slate-900, etc.) automatically
+   adopt your dark tokens when <html> has .dark.
+   ------------------------------------------------------- */
+
+.dark .bg-white { background-color: hsl(var(--card)) !important; }
+.dark .bg-slate-50,
+.dark .bg-gray-50 { background-color: hsl(var(--background)) !important; }
+
+/* translucent whites commonly used for headers/toolbars */
+.dark .bg-white\/95 { background-color: hsl(var(--card) / 0.95) !important; }
+.dark .bg-white\/90 { background-color: hsl(var(--card) / 0.90) !important; }
+.dark .bg-white\/80 { background-color: hsl(var(--card) / 0.80) !important; }
+.dark .bg-white\/70 { background-color: hsl(var(--card) / 0.70) !important; }
+
+/* borders */
+.dark .border-slate-200,
+.dark .border-gray-200,
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: hsl(var(--border)) !important;
+}
+
+/* text colors that were hard-coded to "dark text" */
+.dark .text-slate-900,
+.dark .text-gray-900,
+.dark .text-slate-800,
+.dark .text-gray-800,
+.dark .text-black {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* subtle muted foregrounds */
+.dark .text-slate-500,
+.dark .text-gray-500,
+.dark .text-slate-600,
+.dark .text-gray-600 {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* cards that relied on bg-white + shadow */
+.dark .shadow-sm, .dark .shadow { box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.25), 0 1px 2px -1px rgb(0 0 0 / 0.2) !important; }
+/* -------------------------------------------------------
+   Dark-mode bridges for legacy Tailwind color classes.
+   These let existing components (that still use bg-white,
+   border-slate-200, text-slate-900, etc.) automatically
+   adopt your dark tokens when <html> has .dark.
+   ------------------------------------------------------- */
+
+.dark .bg-white { background-color: hsl(var(--card)) !important; }
+.dark .bg-slate-50,
+.dark .bg-gray-50 { background-color: hsl(var(--background)) !important; }
+
+/* translucent whites commonly used for headers/toolbars */
+.dark .bg-white\/95 { background-color: hsl(var(--card) / 0.95) !important; }
+.dark .bg-white\/90 { background-color: hsl(var(--card) / 0.90) !important; }
+.dark .bg-white\/80 { background-color: hsl(var(--card) / 0.80) !important; }
+.dark .bg-white\/70 { background-color: hsl(var(--card) / 0.70) !important; }
+
+/* borders */
+.dark .border-slate-200,
+.dark .border-gray-200,
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: hsl(var(--border)) !important;
+}
+
+/* text colors that were hard-coded to "dark text" */
+.dark .text-slate-900,
+.dark .text-gray-900,
+.dark .text-slate-800,
+.dark .text-gray-800,
+.dark .text-black {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* subtle muted foregrounds */
+.dark .text-slate-500,
+.dark .text-gray-500,
+.dark .text-slate-600,
+.dark .text-gray-600 {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* cards that relied on bg-white + shadow */
+.dark .shadow-sm, .dark .shadow { box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.25), 0 1px 2px -1px rgb(0 0 0 / 0.2) !important; }
