@@ -155,9 +155,9 @@ export default function Sidebar() {
               Site
             </h4>
             <div className="flex grow flex-col gap-y-1">
-              <Item to="/" icon={<I.grid />} label="Dashboard" />
+
               <Item to="/economic-value" icon={<I.economy />} label="Economic Dashboard" />
-              <Item to="/activity" icon={<I.checks />} label="Activity log" />
+
               <Item to="/boats" icon={<I.boat />} label="Boats" />
               <Item to="/vendors" icon={<I.vendor />} label="Vendors" />
             </div>
