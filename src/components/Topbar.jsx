@@ -213,11 +213,11 @@ export default function Topbar({
         />
 
         {/* settings */}
-        {/* <button className={`${ghost} h-9 w-9`} onClick={onOpenSettings} aria-label="Tenant settings">
+        <button className={`${ghost} h-9 w-9`} onClick={onOpenSettings} aria-label="Tenant settings">
           {Icon.settings}
         </button>
 
-        <div className="flex-1" /> */}
+        <div className="flex-1" />
 
         {/* theme toggle */}
         <button
@@ -230,17 +230,17 @@ export default function Topbar({
         </button>
 
         {/* notifications */}
-        {/* <button
+        <button
           className={`${ghost} h-10 w-10 rounded-full px-0 py-2 relative`}
           onClick={onOpenNotifications}
           aria-label="Open notifications"
         >
           {Icon.bellDot}
-          {/* remove hardcoded unread dot if you prefer; keeping a subtle indicator */}{/*
+          {/* remove hardcoded unread dot if you prefer; keeping a subtle indicator*/}
           <span className="absolute right-2 top-2 inline-block h-2 w-2 rounded-full bg-red-500" />
-        </button> */}
+        </button>
 
-        {/* avatar
+        avatar
         <div className="relative ml-2 hidden md:block">
           <button type="button" onClick={onOpenProfile} aria-label="Open profile menu">
             <span className="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full cursor-pointer">
@@ -249,7 +249,7 @@ export default function Topbar({
               </span>
             </span>
           </button> 
-        </div>*/}
+        </div>
       </div>
     </header>
   );
