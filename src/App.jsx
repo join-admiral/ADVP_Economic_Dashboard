@@ -2,7 +2,6 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 
 import Dashboard from "./pages/Dashboard";
@@ -62,7 +61,6 @@ export default function App() {
           name: m.name || m.display_name || "Untitled",
         }));
         setMarinas(normalized);
-        // ✅ pick the first available marina (no hardcoded "f3")
         setSelectedSiteId(normalized[0]?.id || "");
       })
       .catch((e) => {
@@ -89,9 +87,8 @@ export default function App() {
   return (
     <TenantContext.Provider value={{ tenantId: selectedSiteId, setTenantId: setSelectedSiteId }}>
       <BrowserRouter>
-        <Sidebar />
-
-        <div className="min-h-screen bg-slate-50 pl-[260px] dark:bg-[hsl(var(--background))]">
+        {/* No Sidebar — full-width layout */}
+        <div className="min-h-screen bg-slate-50 dark:bg-[hsl(var(--background))]">
           <Topbar
             siteName={currentSiteName}
             Marinas={marinas}
@@ -103,20 +100,27 @@ export default function App() {
           />
 
           {loadErr && (
-            <div className="mx-6 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            <div className="mx-6 mt-3 rounded-xl border border-amber-2 00 bg-amber-50 px-4 py-2 text-sm text-amber-800">
               {loadErr}
             </div>
           )}
 
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            {/* Economic Dashboard is now the homepage */}
+            <Route path="/" element={<EconomicValueDashboard apiBase={API_BASE} />} />
+
+            {/* Keep other pages accessible directly */}
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/activity" element={<ActivityLog apiBase={API_BASE} />} />
             <Route path="/boats" element={<Boats apiBase={API_BASE} />} />
             <Route path="/vendors" element={<Vendors apiBase={API_BASE} />} />
             <Route path="/marina-activity" element={<MarinaActivity />} />
             <Route path="/settings" element={<SiteSettings />} />
             <Route path="/users" element={<Users />} />
+
+            {/* Keep the old /economic-value route working too */}
             <Route path="/economic-value" element={<EconomicValueDashboard apiBase={API_BASE} />} />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
