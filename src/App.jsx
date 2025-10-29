@@ -20,9 +20,9 @@ export const useTenant = () => React.useContext(TenantContext);
 
 /* ---------- API helper (reads VITE_API_BASE_URL) ---------- */
 const API_BASE = (
-  import.meta?.env?.VITE_API_BASE_URL ||     // <-- your .env
-  import.meta?.env?.VITE_API_BASE ||         // optional legacy
-  "http://localhost:4000"                    // sensible default for your logs
+  import.meta?.env?.VITE_API_BASE_URL ||
+  import.meta?.env?.VITE_API_BASE ||
+  "http://localhost:4000"
 ).replace(/\/$/, "");
 
 async function api(path, params = {}) {
@@ -35,7 +35,11 @@ async function api(path, params = {}) {
   if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
   if (!ct.includes("application/json")) {
     const txt = await res.text();
-    throw new Error(`Expected JSON from ${url.pathname}, got ${ct}. ${txt?.startsWith("<!doctype") ? "Check VITE_API_BASE_URL or proxy." : ""}`);
+    throw new Error(
+      `Expected JSON from ${url.pathname}, got ${ct}. ${
+        txt?.startsWith("<!doctype") ? "Check VITE_API_BASE_URL or proxy." : ""
+      }`
+    );
   }
   return res.json();
 }
@@ -58,15 +62,17 @@ export default function App() {
           name: m.name || m.display_name || "Untitled",
         }));
         setMarinas(normalized);
-        const def = normalized.find((m) => m.id === "f3") || normalized[0];
-        setSelectedSiteId(def ? def.id : "");
+        // ✅ pick the first available marina (no hardcoded "f3")
+        setSelectedSiteId(normalized[0]?.id || "");
       })
       .catch((e) => {
         if (!alive) return;
         setLoadErr(e.message || "Failed to load marinas");
         console.error("Failed to load marinas:", e);
       });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const handleChangeSite = (site) => {

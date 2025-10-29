@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { sbAdmin } from "../supabase.js";
 
+
 const r = Router();
 
 r.get("/", async (_req, res) => {

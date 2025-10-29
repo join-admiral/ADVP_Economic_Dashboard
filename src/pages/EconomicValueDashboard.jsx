@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+// src/pages/EconomicValueDashboard.jsx
+import React, { useMemo, useEffect, useState } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -8,92 +9,161 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
+import { useTenant } from "../App";
 
-export default function EconomicValueDashboard() {
+export default function EconomicValueDashboard({ apiBase }) {
+  const { tenantId } = useTenant();
+
+  // ---- server data ----
+  const [vendors, setVendors] = useState([]);
+  const [vessels, setVessels] = useState([]);
+  const [summary, setSummary] = useState({
+    today: 0, week: 0, month: 0, all_time: 0,
+    prev_day: 0, prev_week: 0, prev_month: 0,
+  });
+  const [trend, setTrend] = useState([]); // [{d, value, active_vendors, avg_per_vendor}]
+  const [quick, setQuick] = useState({ active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
+
+  const [loadErr, setLoadErr] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!tenantId) return; // wait for tenant
+
+    let alive = true;
+    setLoadErr("");
+    setLoading(true);
+
+    const base = apiBase.replace(/\/$/, "");
+   const fetchJson = (path) =>
+  fetch(`${base}/api/economics/${path}`, {
+    credentials: "include",
+    headers: { "X-Tenant-Id": tenantId },
+    cache: "no-store",
+  }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+
+    const fmtDay = (iso) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(y, m - 1, d)));
+};
+
+    Promise.all([
+      fetchJson("vendors"),
+      fetchJson("vessels"),
+      fetchJson("summary"),
+      fetchJson("trend?days=30"),
+      fetchJson("quick-stats"),
+    ])
+      .then(([v1, v2, s1, t1, q1]) => {
+        if (!alive) return;
+        setVendors(v1?.items ?? []);
+        setVessels(v2?.items ?? []);
+        setSummary(
+          s1 || { today:0, week:0, month:0, all_time:0, prev_day:0, prev_week:0, prev_month:0 }
+        );
+        setTrend(t1?.items ?? []);
+        setQuick(q1 || { active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setLoadErr(e.message || "Failed to load economic data");
+        console.error("Economic dashboard fetch error:", e);
+      })
+      .finally(() => alive && setLoading(false));
+
+    return () => {
+      alive = false;
+    };
+  }, [apiBase, tenantId]);
+
   // ---------- helpers ----------
-  // ✅ Removed "US" prefix by using currencyDisplay: "narrowSymbol"
   const currency = (n) =>
     new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: "USD",
-      currencyDisplay: "narrowSymbol", // shows "$" only, no "US"
+      currencyDisplay: "narrowSymbol",
       maximumFractionDigits: 0,
     }).format(n || 0);
 
-  const fmtDay = (d) =>
-    new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-
-  const genSeries = (days = 120) => {
-    const out = [];
-    const today = new Date();
-    let base = 4500;
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      const weekday = date.getDay();
-      const bump = weekday === 5 || weekday === 6 ? 1.25 : 0.9;
-      const noise = 0.85 + Math.random() * 0.5;
-      base = Math.max(1200, base * (0.995 + Math.random() * 0.01));
-      const value = Math.round(base * bump * noise);
-      const activeVendors = Math.max(3, Math.round(8 + (noise - 1) * 12));
-      const avgPerVendor = Math.round(value / activeVendors);
-      out.push({
-        date: date.toISOString().slice(0, 10),
-        value,
-        activeVendors,
-        avgPerVendor,
-      });
-    }
-    return out;
+  // Format an ISO date (YYYY-MM-DD) as a calendar day without TZ shifts
+  const fmtDay = (iso) => {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d)); // force UTC calendar day
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+     timeZone: "UTC",
+    }).format(dt);
   };
 
-  const fullSeries = useMemo(() => genSeries(120), []);
-  const last30 = useMemo(() => fullSeries.slice(-30), [fullSeries]);
-  const todayPoint =
-    last30[last30.length - 1] || { value: 0, activeVendors: 0, avgPerVendor: 0 };
+  // ---- map trend to recharts
+  const trendSeries = useMemo(
+    () =>
+      (trend || []).map((row) => ({
+        date: row.d,
+        value: Number(row.value) || 0,
+        activeVendors: Number(row.active_vendors) || 0,
+        avgPerVendor: Number(row.avg_per_vendor) || 0,
+      })),
+    [trend]
+  );
 
-  const sum = (arr, key = "value") => arr.reduce((a, b) => a + (b?.[key] || 0), 0);
+  const last30 = trendSeries; // we already asked for 30
+  const lastPoint = last30[last30.length - 1] || { date: new Date().toISOString().slice(0,10) };
+
+  // ---- totals: use yesterday when today's window is empty
   const totals = useMemo(() => {
-    const today = todayPoint.value;
-    const week = sum(last30.slice(-7));
-    const month = sum(last30);
-    const allTime = sum(fullSeries);
-    return { today, week, month, allTime };
-  }, [last30, fullSeries, todayPoint.value]);
+    const todayVal =
+      Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || 0;
+    const weekVal  =
+      Number(summary.week)  > 0 ? Number(summary.week)  : Number(summary.prev_week)  || 0;
+    const monthVal =
+      Number(summary.month) > 0 ? Number(summary.month) : Number(summary.prev_month) || 0;
+    return {
+      today: todayVal,
+      week: weekVal,
+      month: monthVal,
+      allTime: Number(summary.all_time) || 0,
+    };
+  }, [summary]);
 
   const pct = (curr, prev) => (!prev ? 0 : ((curr - prev) / prev) * 100);
-  const prevDay = last30[last30.length - 2]?.value || 0;
-  const prev7 = sum(fullSeries.slice(-14, -7));
-  const prev30 = sum(fullSeries.slice(-60, -30));
   const deltas = {
-    today: pct(totals.today, prevDay),
-    week: pct(totals.week, prev7),
-    month: pct(totals.month, prev30),
+    today: pct(totals.today, Number(summary.prev_day) || 0),
+    week: pct(totals.week, Number(summary.prev_week) || 0),
+    month: pct(totals.month, Number(summary.prev_month) || 0),
     allTime: 0,
   };
 
+  // lists
   const topVendors = useMemo(
-    () => [
-      { name: "Oceanic Services LLC", total: 45210 },
-      { name: "HarborTech Marine", total: 39180 },
-      { name: "BlueWave Mechanics", total: 35590 },
-      { name: "Seaborn Supplies", total: 29740 },
-      { name: "Marina Essentials Co.", total: 25510 },
-    ],
-    []
+    () => (vendors || []).map((r) => ({ name: r.company_name ?? "—", total: r.total_wages ?? 0 })),
+    [vendors]
   );
-
   const topVessels = useMemo(
-    () => [
-      { name: "M/V Northern Star", total: 28750 },
-      { name: "S/Y Wind Chaser", total: 24110 },
-      { name: "M/V Coral Queen", total: 22480 },
-      { name: "S/Y Silver Tide", total: 19170 },
-      { name: "M/V Sea Venture", total: 17760 },
-    ],
-    []
+    () => (vessels || []).map((r) => ({ name: r.boat_name ?? "—", total: r.total_wages ?? 0 })),
+    [vessels]
   );
 
+  // ---- quick stats (real)
+   // Use yesterday when today has no data
+  const activeVendorsTodayReal =
+    Number(quick.active_vendors_today) > 0
+      ? Number(quick.active_vendors_today)
+      : Number(quick.active_vendors_yday) || 0;
+
+  const todaysValueReal =
+    Number(summary.today) > 0
+      ? Number(summary.today)
+      : Number(summary.prev_day) || Number(quick.yday_value) || 0;
+
+  const avgPerVendorToday = activeVendorsTodayReal
+    ? Math.round(todaysValueReal / activeVendorsTodayReal)
+    : 0;
+  const dailyAvg30 = Number(quick.daily_avg_30) || 0;
+  
   // ---------- small UI ----------
   const StatCard = ({ label, value, delta }) => {
     const up = delta >= 0;
@@ -104,11 +174,7 @@ export default function EconomicValueDashboard() {
         </div>
         <div className="mt-2 flex items-baseline gap-2">
           <div className="text-2xl font-bold text-slate-900">{currency(value)}</div>
-          <div
-            className={`text-xs font-semibold ${
-              up ? "text-emerald-600" : "text-rose-600"
-            }`}
-          >
+          <div className={`text-xs font-semibold ${up ? "text-emerald-600" : "text-rose-600"}`}>
             {up ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
           </div>
         </div>
@@ -119,9 +185,7 @@ export default function EconomicValueDashboard() {
   const Section = ({ title, right, children }) => (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-          {title}
-        </h3>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">{title}</h3>
         {right}
       </div>
       {children}
@@ -151,9 +215,13 @@ export default function EconomicValueDashboard() {
   // ---------- layout ----------
   return (
     <div className="px-0">
-      {/* ✅ Removed heading and paragraph */}
+      {loadErr && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          {loadErr}
+        </div>
+      )}
 
-      {/* summary cards */}
+      {/* summary cards (LIVE) */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Today’s Value" value={totals.today} delta={deltas.today} />
         <StatCard label="This Week" value={totals.week} delta={deltas.week} />
@@ -163,15 +231,11 @@ export default function EconomicValueDashboard() {
 
       {/* main grid */}
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-3">
-        {/* chart */}
+        {/* chart (LIVE) */}
         <div className="xl:col-span-2">
           <Section
             title="30-Day Economic Trend"
-            right={
-              <span className="text-xs text-slate-500">
-                Last updated {fmtDay(todayPoint.date)}
-              </span>
-            }
+            right={<span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>}
           >
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -199,10 +263,10 @@ export default function EconomicValueDashboard() {
 
         {/* top vendors */}
         <div className="xl:col-span-1">
-          <Section title="Top Vendors by $">
+          <Section title={`Top Vendors by $${loading ? " (loading…)" : ""}`}>
             <ul className="divide-y divide-slate-200">
               {topVendors.map((v, i) => (
-                <li key={v.name} className="flex items-center justify-between py-3">
+                <li key={`${v.name}-${i}`} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
                     <div className="grid h-8 w-8 place-items-center rounded-xl bg-sky-50 text-[11px] font-bold text-sky-700">
                       {i + 1}
@@ -212,16 +276,19 @@ export default function EconomicValueDashboard() {
                   <div className="text-sm font-semibold text-slate-900">{currency(v.total)}</div>
                 </li>
               ))}
+              {!loading && topVendors.length === 0 && (
+                <li className="py-4 text-sm text-slate-500">No data</li>
+              )}
             </ul>
           </Section>
         </div>
 
         {/* top vessels */}
         <div className="xl:col-span-1 order-last xl:order-none">
-          <Section title="Top Vessels by $">
+          <Section title={`Top Vessels by $${loading ? " (loading…)" : ""}`}>
             <ul className="divide-y divide-slate-200">
               {topVessels.map((v, i) => (
-                <li key={v.name} className="flex items-center justify-between py-3">
+                <li key={`${v.name}-${i}`} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
                     <div className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-[11px] font-bold text-emerald-700">
                       {i + 1}
@@ -231,11 +298,14 @@ export default function EconomicValueDashboard() {
                   <div className="text-sm font-semibold text-slate-900">{currency(v.total)}</div>
                 </li>
               ))}
+              {!loading && topVessels.length === 0 && (
+                <li className="py-4 text-sm text-slate-500">No data</li>
+              )}
             </ul>
           </Section>
         </div>
 
-        {/* quick stats */}
+        {/* quick stats (LIVE) */}
         <div className="xl:col-span-2">
           <Section title="Quick Stats">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -243,14 +313,16 @@ export default function EconomicValueDashboard() {
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   Active Vendors Today
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">{todayPoint.activeVendors}</div>
-                <div className="text-xs text-slate-500">From vendor activity logs</div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">{activeVendorsTodayReal}</div>
+                <div className="text-xs text-slate-500">From daily vendor hours</div>
               </div>
               <div className="rounded-xl border border-slate-200 p-4">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   Avg $ per Vendor (Today)
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">{currency(todayPoint.avgPerVendor)}</div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">
+                  {currency(avgPerVendorToday)}
+                </div>
                 <div className="text-xs text-slate-500">Today’s Value / Active Vendors</div>
               </div>
               <div className="rounded-xl border border-slate-200 p-4">
@@ -258,7 +330,7 @@ export default function EconomicValueDashboard() {
                   30-Day Daily Avg
                 </div>
                 <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {currency(Math.round(totals.month / 30))}
+                  {currency(Math.round(dailyAvg30))}
                 </div>
                 <div className="text-xs text-slate-500">Rolling mean over last 30 days</div>
               </div>

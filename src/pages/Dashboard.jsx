@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/pages/Dashboard.jsx
+import React, { useEffect, useState } from "react";
 import {
   ComposedChart,
   Area,
@@ -9,6 +10,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
+import { useTenant } from "../App";
 
 /* ---------------------------- tiny UI primitives ---------------------------- */
 const Card = ({ className = "", children, title, right }) => (
@@ -30,12 +32,6 @@ const StatCard = ({ label, value }) => (
   </div>
 );
 
-const Badge = ({ children }) => (
-  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
-    {children}
-  </span>
-);
-
 const Dot = ({ className = "" }) => (
   <span className={`inline-block h-2 w-2 rounded-full ${className}`} />
 );
@@ -44,92 +40,129 @@ const Dot = ({ className = "" }) => (
 const fmtTimeHM = (date) =>
   new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const fmtHM = (mins) => {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
+  const h = Math.floor((mins || 0) / 60);
+  const m = Math.max(0, (mins || 0) % 60);
   return `${h}h ${m.toString().padStart(2, "0")}m`;
 };
 
-/* ------------------------------- mock dataset ------------------------------ */
-/* Replace this whole block with real fetch/hooks when you’re ready */
-const useDashboardData = () => {
-  // Hourly series 7AM-7PM
-  const hours = ["7AM","8AM","9AM","10AM","11AM","12PM","1PM","2PM","3PM","4PM","5PM","6PM","7PM"];
-  const hourly = hours.map((h, i) => ({
-    hour: h,
-    active: i <= 5 ? [3,3,4,5,5,4][i] ?? 0 : 0,
-    checkins: i <= 5 ? [0,0,2,1,0,0][i] ?? 0 : 0,
-    checkouts: i <= 5 ? [0,0,0,0,1,0][i] ?? 0 : 0,
-  }));
-
-  const activityFeed = [
-    {
-      id: "a1",
-      vendor: "Juan Guerra",
-      company: "Jet & Yacht Masters",
-      action: "checked out of",
-      target: "Chevo At Sea",
-      icon: "phone",
-      at: "2025-10-23T12:21:00Z",
+/* ---------------------------- data fetching hook ---------------------------- */
+function useDashboardData({ apiBase, tenantKey, autoRefresh }) {
+  const [state, setState] = useState({
+    metrics: {
+      active_vendors: 0,
+      checkins: 0,
+      checkouts: 0,
+      total_vendors_today: 0,
+      avg_time_on_site_mins: 0,
     },
-    {
-      id: "a2",
-      vendor: "Yosvani Izzo",
-      company: "MarineMax Miami",
-      action: "checked out of",
-      target: "Millard Lil Rascal",
-      icon: "phone",
-      at: "2025-10-23T12:05:00Z",
-    },
-    {
-      id: "a3",
-      vendor: "Juan Guerra",
-      company: "Jet & Yacht Masters",
-      action: "checked in to see",
-      target: "Chevo AZ at Sea",
-      icon: "phone",
-      at: "2025-10-23T11:51:00Z",
-    },
-  ];
+    hourly: [],   // [{ hour, active, checkins, checkouts }]
+    feed: [],     // [{ id, vendor, company, action, target, at }]
+    topVendors: [],
+    topVessels: [],
+    error: "",
+    loading: false,
+  });
 
-  const metrics = {
-    activeVendors: 3,
-    checkIns: 8,
-    checkOuts: 3,
-    flaggedVendors: 6,
-    totalVendorsToday: 6,
-    avgTimeOnSiteMins: 118, // 1h58m
-  };
+  useEffect(() => {
+    if (!tenantKey) return; // wait until a site is selected
+    let alive = true;
 
-  const mostActiveVendors = [
-    { name: "Trustworthy Marine", visits: 2 },
-    { name: "Oceanic Yacht Management", visits: 1 },
-    { name: "MarineMax Pompano", visits: 1 },
-  ];
+    const base = (apiBase || "").replace(/\/$/, "");
+    const headers = { "X-Tenant-Id": String(tenantKey) };
 
-  const mostActiveBoats = [
-    { name: "Lawrence - TBD", visits: 2 },
-    { name: "Escape Velocity", visits: 1 },
-    { name: "Lil Rascal", visits: 1 },
-  ];
-
-  return { hours, hourly, activityFeed, metrics, mostActiveVendors, mostActiveBoats };
+   // Activity endpoints — require query param tenantId (we also send header)
+const fetchActivity = (path) => {
+  const sep = path.includes("?") ? "&" : "?";
+  const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantKey)}`;
+  if (process.env.NODE_ENV !== "production") console.debug("[Dashboard] GET", url);
+  return fetch(url, { credentials: "include", headers }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    return j;
+  });
 };
+
+// Economics endpoints — some builds expect header only, others expect query param.
+// Send BOTH (header + ?tenantId=) to be fully compatible with your economics.js.
+const fetchEconomics = (path) => {
+  const sep = path.includes("?") ? "&" : "?";
+  const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantKey)}`;
+  if (process.env.NODE_ENV !== "production") console.debug("[Dashboard] GET", url);
+  return fetch(url, { credentials: "include", headers }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    return j;
+  });
+};
+
+
+    async function load() {
+      try {
+        if (!alive) return;
+        setState((s) => ({ ...s, loading: true, error: "" }));
+
+        const [m, h, f, v, b] = await Promise.all([
+        fetchActivity(`/api/activity/metrics`),
+        fetchActivity(`/api/activity/hourly`),
+        fetchActivity(`/api/activity/feed?limit=10`),
+        fetchEconomics(`/api/economics/vendors`),
+        fetchEconomics(`/api/economics/vessels`),
+      ]);
+
+
+        if (!alive) return;
+        setState({
+          metrics: m || state.metrics,
+          hourly: h?.items || [],
+          feed: f?.items || [],
+topVendors: (v?.items || []).map((x) => x.company_name).filter(Boolean).slice(0, 3),
+  topVessels: (b?.items || []).map((x) => x.boat_name).filter(Boolean).slice(0, 3),
+          loading: false,
+          error: "",
+        });
+      } catch (e) {
+        if (!alive) return;
+        setState((s) => ({ ...s, loading: false, error: e?.message || "Load failed" }));
+      }
+    }
+
+    load();
+
+    if (autoRefresh) {
+      const id = setInterval(load, 60000);
+      return () => {
+        alive = false;
+        clearInterval(id);
+      };
+    }
+    return () => {
+      alive = false;
+    };
+  }, [apiBase, tenantKey, autoRefresh]); // correct deps
+
+  return state;
+}
 
 /* --------------------------------- page ----------------------------------- */
 export default function Dashboard() {
-  const { hourly, activityFeed, metrics, mostActiveVendors, mostActiveBoats } =
-    useDashboardData();
+  // Get tenant from App context
+  const { tenantId } = useTenant();
+  const tenantKey = tenantId || undefined;
+
+  // Compute API base (same logic as App.jsx)
+  const API_BASE = (
+    import.meta?.env?.VITE_API_BASE_URL ||
+    import.meta?.env?.VITE_API_BASE ||
+    "http://localhost:4000"
+  ).replace(/\/$/, "");
 
   const [autoRefresh, setAutoRefresh] = useState(false);
 
-  // demo auto-refresh: re-shuffle a little (remove for real data)
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const id = setInterval(() => {
-      // no-op placeholder to show the toggle working
-    }, 60000);
-    return () => clearInterval(id);
-  }, [autoRefresh]);
+  const { metrics, hourly, feed, topVendors, topVessels } = useDashboardData({
+    apiBase: API_BASE,
+    tenantKey,
+    autoRefresh,
+  });
 
   const chartLegend = (
     <div className="flex items-center gap-4 text-xs text-slate-600">
@@ -150,12 +183,18 @@ export default function Dashboard() {
 
   return (
     <div className="px-5 py-4">
+      {process.env.NODE_ENV !== "production" && (
+        <div className="mb-2 text-[11px] text-slate-400">
+          tenantId sent: <code>{String(tenantKey || "—")}</code>
+        </div>
+      )}
+
       {/* top stats */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Active Vendors" value={metrics.activeVendors} />
-        <StatCard label="Check-ins" value={metrics.checkIns} />
-        <StatCard label="Check-outs" value={metrics.checkOuts} />
-        <StatCard label="Flagged Vendors" value={metrics.flaggedVendors} />
+        <StatCard label="Active Vendors" value={metrics.active_vendors} />
+        <StatCard label="Check-ins" value={metrics.checkins} />
+        <StatCard label="Check-outs" value={metrics.checkouts} />
+        {/* (Flagged Vendors card removed) */}
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -163,10 +202,19 @@ export default function Dashboard() {
         <div className="lg:col-span-3 flex flex-col gap-4">
           {/* chart */}
           <Card
-            title="Today's Vendor Activity (7AM - 7PM)"
+            title="Today's Vendor Activity "
             right={
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 {chartLegend}
+                <label className="ml-3 inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="accent-slate-700"
+                    checked={autoRefresh}
+                    onChange={(e) => setAutoRefresh(e.target.checked)}
+                  />
+                  Auto refresh
+                </label>
               </div>
             }
           >
@@ -178,9 +226,9 @@ export default function Dashboard() {
                   year: "numeric",
                 })}
               </div>
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={hourly}>
+              <div className="h-[280px] min-w-full">
+                <ResponsiveContainer key={hourly?.length || 0} width="100%" height="100%">
+                  <ComposedChart data={hourly || []}>
                     <defs>
                       <linearGradient id="gActive" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="currentColor" stopOpacity="0.35" />
@@ -241,32 +289,22 @@ export default function Dashboard() {
           </Card>
 
           {/* Activity Feed */}
-          <Card title="Activity Feed" right={
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">Show</span>
-              <select className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
-                <option>10</option>
-                <option>20</option>
-                <option>50</option>
-              </select>
-            </div>
-          }>
+          <Card title="Activity Feed" right={<div className="text-xs text-slate-500">Today</div>}>
             <ul className="divide-y divide-slate-200">
-              {activityFeed.map((ev) => (
+              {feed.map((ev) => (
                 <li key={ev.id} className="px-4 py-3">
                   <div className="flex items-start gap-3">
                     <img
                       alt={ev.vendor}
-                      src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
-                        ev.vendor
-                      )}`}
+                      src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(ev.vendor || "A")}`}
                       className="mt-0.5 h-9 w-9 rounded-full border border-slate-200"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm text-slate-800">
-                        <span className="font-semibold">{ev.vendor}</span>{" "}
-                        from <span className="font-medium">{ev.company}</span>{" "}
-                        {ev.action} <span className="font-medium">{ev.target}</span>{" "}
+                        <span className="font-semibold">{ev.vendor || "—"}</span>{" "}
+                        from <span className="font-medium">{ev.company || "—"}</span>{" "}
+                        {ev.action}{" "}
+                        <span className="font-medium">{ev.target || "—"}</span>{" "}
                         <button
                           className="ml-1 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
                           onClick={() => alert("Edit details")}
@@ -276,13 +314,15 @@ export default function Dashboard() {
                       </div>
                       <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                         <Dot className="bg-emerald-500" />
-                        {new Date(ev.at).toLocaleDateString()}{" "}
-                        {fmtTimeHM(ev.at)}
+                        {new Date(ev.at).toLocaleDateString()} {fmtTimeHM(ev.at)}
                       </div>
                     </div>
                   </div>
                 </li>
               ))}
+              {!feed.length && (
+                <li className="px-4 py-6 text-sm text-slate-500">No activity yet for the selected day.</li>
+              )}
             </ul>
           </Card>
         </div>
@@ -291,66 +331,42 @@ export default function Dashboard() {
         <div className="flex flex-col gap-4">
           <Card title="Total Vendors Today">
             <div className="px-4 py-5 text-2xl font-bold text-slate-900">
-              {metrics.totalVendorsToday}
+              {metrics.total_vendors_today ?? 0}
             </div>
           </Card>
 
           <Card title="Avg. Time on Site">
             <div className="px-4 py-5 text-2xl font-bold text-slate-900">
-              {fmtHM(metrics.avgTimeOnSiteMins)}
+              {fmtHM(metrics.avg_time_on_site_mins)}
             </div>
           </Card>
 
           <Card title="Most Active Vendors">
             <ol className="px-4 py-3 text-sm text-slate-800">
-              {mostActiveVendors.map((v, i) => (
-                <li key={v.name} className="flex items-center justify-between py-1.5">
+              {topVendors.map((name, i) => (
+                <li key={`${name}-${i}`} className="flex items-center justify-between py-1.5">
                   <span className="flex items-center gap-2">
                     <span className="w-5 text-slate-500">#{i + 1}</span>
-                    {v.name}
+                    {name}
                   </span>
-                  <span className="text-xs text-slate-500">{v.visits} Visits</span>
                 </li>
               ))}
+              {!topVendors.length && <li className="py-1.5 text-slate-500">No vendors.</li>}
             </ol>
           </Card>
 
           <Card title="Most Active Vessels">
             <ol className="px-4 py-3 text-sm text-slate-800">
-              {mostActiveBoats.map((b, i) => (
-                <li key={b.name} className="flex items-center justify-between py-1.5">
+              {topVessels.map((name, i) => (
+                <li key={`${name}-${i}`} className="flex items-center justify-between py-1.5">
                   <span className="flex items-center gap-2">
                     <span className="w-5 text-slate-500">#{i + 1}</span>
-                    {b.name}
+                    {name}
                   </span>
-                  <span className="text-xs text-slate-500">{b.visits} Visits</span>
                 </li>
               ))}
+              {!topVessels.length && <li className="py-1.5 text-slate-500">No vessels.</li>}
             </ol>
-          </Card>
-
-          <Card title="Auto refresh" right={
-            <button
-              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-              onClick={() => alert('Expand')}
-              aria-label="Expand"
-            >
-              ⤢
-            </button>
-          }>
-            <div className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  id="auto-refresh"
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-slate-300"
-                  checked={autoRefresh}
-                  onChange={(e) => setAutoRefresh(e.target.checked)}
-                />
-                <label htmlFor="auto-refresh">Auto refresh</label>
-              </div>
-              <Badge>60s</Badge>
-            </div>
           </Card>
         </div>
       </div>

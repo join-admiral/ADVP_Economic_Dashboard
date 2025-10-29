@@ -218,7 +218,7 @@ export default function ActivityLog({ apiBase = "" }) {
                 <th>Notes</th>
                 <th>Check-in</th>
                 <th>Check-out</th>
-                <th className="w-16">Flags</th>
+                {/* <th className="w-16">Flags</th> */}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm">
@@ -230,7 +230,7 @@ export default function ActivityLog({ apiBase = "" }) {
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center">
-                      <Avatar name={r.name} src={r.avatar} />
+                      {/* <Avatar name={r.name} src={r.avatar} /> */}
                       <span className="font-medium text-slate-800">{r.name}</span>
                     </div>
                   </td>
@@ -239,17 +239,17 @@ export default function ActivityLog({ apiBase = "" }) {
                   <td className="px-4 py-3">{r.notes || "—"}</td>
                   <td className="px-4 py-3">{r.checkin || "—"}</td>
                   <td className="px-4 py-3">{r.checkout || "—"}</td>
-                  <td className="px-4 py-3">
+                  {/* <td className="px-4 py-3">
                     {r.flagged ? (
                       <span className="inline-flex items-center gap-1 text-rose-600">
-                        <IconAlert className="h-4 w-4" /> {/* flagged */}
+                        <IconAlert className="h-4 w-4" /> 
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-emerald-600">
-                        <IconCheck className="h-4 w-4" /> {/* ok */}
+                        <IconCheck className="h-4 w-4" /> 
                       </span>
                     )}
-                  </td>
+                  </td> */}
                 </tr>
               ))}
 
@@ -330,7 +330,7 @@ export default function ActivityLog({ apiBase = "" }) {
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 min-h-10">{selected.notes || "—"}</div>
                 </div>
 
-                <div>
+                {/* <div>
                   <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Flags</div>
                   <div className="mt-2 flex items-center gap-2">
                     {selected.flagged ? (
@@ -343,7 +343,7 @@ export default function ActivityLog({ apiBase = "" }) {
                       </span>
                     )}
                   </div>
-                </div>
+                </div> */}
               </div>
             </div>
 
