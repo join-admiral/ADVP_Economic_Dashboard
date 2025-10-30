@@ -1,15 +1,33 @@
-export const API_BASE =
-  import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || "";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
 
-export async function readJson(res) {
+export function getTenant() {
+  return localStorage.getItem("tenant") || "admirals-cove"; // <-- pick a real default slug or id
+}
+
+export function setTenant(t) {
+  localStorage.setItem("tenant", t);
+}
+
+export async function api(path, init = {}) {
+  const u = new URL(path, API_BASE);
+  // attach tenant & timezone
+  const tenant = getTenant();
+  if (!u.searchParams.has("tenant")) u.searchParams.set("tenant", tenant);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!u.searchParams.has("tz")) u.searchParams.set("tz", tz);
+
+  const res = await fetch(u, {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      "x-tenant-id": tenant, // header fallback (middleware usually accepts this too)
+    },
+    credentials: "include",
+  });
+
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText} – ${text.slice(0,200)}`);
-  }
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Expected JSON, got "${ct}". Body: ${text.slice(0,200)}`);
+    const text = await res.text();
+    throw new Error(text || `${res.status}`);
   }
   return res.json();
 }

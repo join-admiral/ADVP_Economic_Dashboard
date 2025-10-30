@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { useTenant } from "../App";
 
-export default function EconomicValueDashboard({ apiBase }) {
+export default function EconomicValueDashboard({ apiBase = "" }) {
   const { tenantId } = useTenant();
 
   // ---- server data ----
@@ -22,7 +22,14 @@ export default function EconomicValueDashboard({ apiBase }) {
     prev_day: 0, prev_week: 0, prev_month: 0,
   });
   const [trend, setTrend] = useState([]); // [{d, value, active_vendors, avg_per_vendor}]
-  const [quick, setQuick] = useState({ active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
+  const [quick, setQuick] = useState({
+    active_vendors_today: 0,
+    today_value: 0,
+    daily_avg_30: 0,
+    // optional yday fallbacks if your API returns them:
+    active_vendors_yday: 0,
+    yday_value: 0,
+  });
 
   const [loadErr, setLoadErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,18 +42,15 @@ export default function EconomicValueDashboard({ apiBase }) {
     setLoading(true);
 
     const base = apiBase.replace(/\/$/, "");
-   const fetchJson = (path) =>
-  fetch(`${base}/api/economics/${path}`, {
-    credentials: "include",
-    headers: { "X-Tenant-Id": tenantId },
-    cache: "no-store",
-  }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
-
-    const fmtDay = (iso) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
-    .format(new Date(Date.UTC(y, m - 1, d)));
-};
+    const fetchJson = (path) =>
+      fetch(`${base}/api/economics/${path}`, {
+        credentials: "include",
+        headers: { "X-Tenant-Id": tenantId },
+        cache: "no-store",
+      }).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      });
 
     Promise.all([
       fetchJson("vendors"),
@@ -60,7 +64,7 @@ export default function EconomicValueDashboard({ apiBase }) {
         setVendors(v1?.items ?? []);
         setVessels(v2?.items ?? []);
         setSummary(
-          s1 || { today:0, week:0, month:0, all_time:0, prev_day:0, prev_week:0, prev_month:0 }
+          s1 || { today: 0, week: 0, month: 0, all_time: 0, prev_day: 0, prev_week: 0, prev_month: 0 }
         );
         setTrend(t1?.items ?? []);
         setQuick(q1 || { active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
@@ -90,11 +94,11 @@ export default function EconomicValueDashboard({ apiBase }) {
   const fmtDay = (iso) => {
     if (!iso) return "";
     const [y, m, d] = iso.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, m - 1, d)); // force UTC calendar day
+    const dt = new Date(Date.UTC(y, m - 1, d));
     return new Intl.DateTimeFormat(undefined, {
       month: "short",
       day: "numeric",
-     timeZone: "UTC",
+      timeZone: "UTC",
     }).format(dt);
   };
 
@@ -110,17 +114,14 @@ export default function EconomicValueDashboard({ apiBase }) {
     [trend]
   );
 
-  const last30 = trendSeries; // we already asked for 30
-  const lastPoint = last30[last30.length - 1] || { date: new Date().toISOString().slice(0,10) };
+  const last30 = trendSeries;
+  const lastPoint = last30[last30.length - 1] || { date: new Date().toISOString().slice(0, 10) };
 
   // ---- totals: use yesterday when today's window is empty
   const totals = useMemo(() => {
-    const todayVal =
-      Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || 0;
-    const weekVal  =
-      Number(summary.week)  > 0 ? Number(summary.week)  : Number(summary.prev_week)  || 0;
-    const monthVal =
-      Number(summary.month) > 0 ? Number(summary.month) : Number(summary.prev_month) || 0;
+    const todayVal = Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || 0;
+    const weekVal = Number(summary.week) > 0 ? Number(summary.week) : Number(summary.prev_week) || 0;
+    const monthVal = Number(summary.month) > 0 ? Number(summary.month) : Number(summary.prev_month) || 0;
     return {
       today: todayVal,
       week: weekVal,
@@ -148,30 +149,23 @@ export default function EconomicValueDashboard({ apiBase }) {
   );
 
   // ---- quick stats (real)
-   // Use yesterday when today has no data
   const activeVendorsTodayReal =
     Number(quick.active_vendors_today) > 0
       ? Number(quick.active_vendors_today)
       : Number(quick.active_vendors_yday) || 0;
 
   const todaysValueReal =
-    Number(summary.today) > 0
-      ? Number(summary.today)
-      : Number(summary.prev_day) || Number(quick.yday_value) || 0;
+    Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || Number(quick.yday_value) || 0;
 
-  const avgPerVendorToday = activeVendorsTodayReal
-    ? Math.round(todaysValueReal / activeVendorsTodayReal)
-    : 0;
+  const avgPerVendorToday = activeVendorsTodayReal ? Math.round(todaysValueReal / activeVendorsTodayReal) : 0;
   const dailyAvg30 = Number(quick.daily_avg_30) || 0;
-  
+
   // ---------- small UI ----------
   const StatCard = ({ label, value, delta }) => {
     const up = delta >= 0;
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
-          {label}
-        </div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
         <div className="mt-2 flex items-baseline gap-2">
           <div className="text-2xl font-bold text-slate-900">{currency(value)}</div>
           <div className={`text-xs font-semibold ${up ? "text-emerald-600" : "text-rose-600"}`}>
@@ -205,8 +199,7 @@ export default function EconomicValueDashboard({ apiBase }) {
           Active Vendors: <span className="font-semibold text-slate-900">{p.activeVendors}</span>
         </div>
         <div className="text-slate-600">
-          Avg / Vendor:{" "}
-          <span className="font-semibold text-slate-900">{currency(p.avgPerVendor)}</span>
+          Avg / Vendor: <span className="font-semibold text-slate-900">{currency(p.avgPerVendor)}</span>
         </div>
       </div>
     );
@@ -233,10 +226,7 @@ export default function EconomicValueDashboard({ apiBase }) {
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-3">
         {/* chart (LIVE) */}
         <div className="xl:col-span-2">
-          <Section
-            title="30-Day Economic Trend"
-            right={<span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>}
-          >
+          <Section title="30-Day Economic Trend" right={<span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>}>
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={last30} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -276,15 +266,13 @@ export default function EconomicValueDashboard({ apiBase }) {
                   <div className="text-sm font-semibold text-slate-900">{currency(v.total)}</div>
                 </li>
               ))}
-              {!loading && topVendors.length === 0 && (
-                <li className="py-4 text-sm text-slate-500">No data</li>
-              )}
+              {!loading && topVendors.length === 0 && <li className="py-4 text-sm text-slate-500">No data</li>}
             </ul>
           </Section>
         </div>
 
         {/* top vessels */}
-        <div className="xl:col-span-1 order-last xl:order-none">
+        <div className="xl:col-span-1 order-last xl:order-0">{/* fixed Tailwind suggestion */}
           <Section title={`Top Vessels by $${loading ? " (loading…)" : ""}`}>
             <ul className="divide-y divide-slate-200">
               {topVessels.map((v, i) => (
@@ -298,9 +286,7 @@ export default function EconomicValueDashboard({ apiBase }) {
                   <div className="text-sm font-semibold text-slate-900">{currency(v.total)}</div>
                 </li>
               ))}
-              {!loading && topVessels.length === 0 && (
-                <li className="py-4 text-sm text-slate-500">No data</li>
-              )}
+              {!loading && topVessels.length === 0 && <li className="py-4 text-sm text-slate-500">No data</li>}
             </ul>
           </Section>
         </div>
@@ -320,18 +306,14 @@ export default function EconomicValueDashboard({ apiBase }) {
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   Avg $ per Vendor (Today)
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {currency(avgPerVendorToday)}
-                </div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">{currency(avgPerVendorToday)}</div>
                 <div className="text-xs text-slate-500">Today’s Value / Active Vendors</div>
               </div>
               <div className="rounded-xl border border-slate-200 p-4">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   30-Day Daily Avg
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {currency(Math.round(dailyAvg30))}
-                </div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">{currency(Math.round(dailyAvg30))}</div>
                 <div className="text-xs text-slate-500">Rolling mean over last 30 days</div>
               </div>
             </div>
