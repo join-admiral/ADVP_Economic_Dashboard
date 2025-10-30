@@ -214,7 +214,7 @@ export default function EconomicValueDashboard({ apiBase }) {
 
   // ---------- layout ----------
   return (
-    <div className="px-0">
+    <div className="px-4 sm:px-6">
       {loadErr && (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           {loadErr}
@@ -222,7 +222,8 @@ export default function EconomicValueDashboard({ apiBase }) {
       )}
 
       {/* summary cards (LIVE) */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
+
         <StatCard label="Today’s Value" value={totals.today} delta={deltas.today} />
         <StatCard label="This Week" value={totals.week} delta={deltas.week} />
         <StatCard label="This Month" value={totals.month} delta={deltas.month} />
@@ -308,15 +309,16 @@ export default function EconomicValueDashboard({ apiBase }) {
         {/* quick stats (LIVE) */}
         <div className="xl:col-span-2">
           <Section title="Quick Stats">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 p-4">
+            <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
+
+              <div className="rounded-xl border border-slate-200 p-3.5">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   Active Vendors Today
                 </div>
                 <div className="mt-2 text-2xl font-bold text-slate-900">{activeVendorsTodayReal}</div>
                 <div className="text-xs text-slate-500">From daily vendor hours</div>
               </div>
-              <div className="rounded-xl border border-slate-200 p-4">
+              <div className="rounded-xl border border-slate-200 p-3.5">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   Avg $ per Vendor (Today)
                 </div>
@@ -325,7 +327,7 @@ export default function EconomicValueDashboard({ apiBase }) {
                 </div>
                 <div className="text-xs text-slate-500">Today’s Value / Active Vendors</div>
               </div>
-              <div className="rounded-xl border border-slate-200 p-4">
+              <div className="rounded-xl border border-slate-200 p-3.5">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   30-Day Daily Avg
                 </div>
