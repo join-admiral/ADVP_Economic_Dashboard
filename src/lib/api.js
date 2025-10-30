@@ -1,33 +1,37 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
+// src/lib/api.js
+const API_BASE = import.meta.env.VITE_API_BASE || "https://advp-economic-dashboard-backend.onrender.com";
 
-export function getTenant() {
-  return localStorage.getItem("tenant") || "admirals-cove"; // <-- pick a real default slug or id
-}
+export const getTenant = () =>
+  localStorage.getItem("tenant") || "admirals-cove"; // <-- set your real default slug or numeric id
 
-export function setTenant(t) {
+export const setTenant = (t) => {
   localStorage.setItem("tenant", t);
-}
+};
 
 export async function api(path, init = {}) {
-  const u = new URL(path, API_BASE);
-  // attach tenant & timezone
-  const tenant = getTenant();
-  if (!u.searchParams.has("tenant")) u.searchParams.set("tenant", tenant);
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  if (!u.searchParams.has("tz")) u.searchParams.set("tz", tz);
+  const base = API_BASE.replace(/\/$/, "");
+  const url = new URL(path, base);
 
-  const res = await fetch(u, {
+  // always attach tenant + timezone
+  const tenant = getTenant();
+  if (!url.searchParams.has("tenant")) url.searchParams.set("tenant", tenant);
+
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!url.searchParams.has("tz")) url.searchParams.set("tz", tz);
+
+  const res = await fetch(url.toString(), {
     ...init,
+    credentials: "include",
     headers: {
       ...(init.headers || {}),
-      "x-tenant-id": tenant, // header fallback (middleware usually accepts this too)
+      "X-Tenant-Id": tenant, // header fallback for your middleware
     },
-    credentials: "include",
+    cache: "no-store",
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `${res.status}`);
+    throw new Error(text || `HTTP ${res.status}`);
   }
   return res.json();
 }
