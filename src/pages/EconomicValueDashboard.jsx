@@ -9,9 +9,11 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { api } from "../lib/api";
+import { useTenant } from "../App";
 
-export default function EconomicValueDashboard() {
+export default function EconomicValueDashboard({ apiBase }) {
+  const { tenantId } = useTenant();
+
   // ---- server data ----
   const [vendors, setVendors] = useState([]);
   const [vessels, setVessels] = useState([]);
@@ -20,35 +22,45 @@ export default function EconomicValueDashboard() {
     prev_day: 0, prev_week: 0, prev_month: 0,
   });
   const [trend, setTrend] = useState([]); // [{d, value, active_vendors, avg_per_vendor}]
-  const [quick, setQuick] = useState({
-    active_vendors_today: 0,
-    today_value: 0,
-    daily_avg_30: 0,
-    active_vendors_yday: 0,
-    yday_value: 0,
-  });
+  const [quick, setQuick] = useState({ active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
 
   const [loadErr, setLoadErr] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (!tenantId) return; // wait for tenant
+
     let alive = true;
     setLoadErr("");
     setLoading(true);
 
+    const base = apiBase.replace(/\/$/, "");
+   const fetchJson = (path) =>
+  fetch(`${base}/api/economics/${path}`, {
+    credentials: "include",
+    headers: { "X-Tenant-Id": tenantId },
+    cache: "no-store",
+  }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+
+    const fmtDay = (iso) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(y, m - 1, d)));
+};
+
     Promise.all([
-      api("/api/economics/vendors"),
-      api("/api/economics/vessels"),
-      api("/api/economics/summary"),
-      api("/api/economics/trend?days=30"),
-      api("/api/economics/quick-stats"),
+      fetchJson("vendors"),
+      fetchJson("vessels"),
+      fetchJson("summary"),
+      fetchJson("trend?days=30"),
+      fetchJson("quick-stats"),
     ])
       .then(([v1, v2, s1, t1, q1]) => {
         if (!alive) return;
         setVendors(v1?.items ?? []);
         setVessels(v2?.items ?? []);
         setSummary(
-          s1 || { today: 0, week: 0, month: 0, all_time: 0, prev_day: 0, prev_week: 0, prev_month: 0 }
+          s1 || { today:0, week:0, month:0, all_time:0, prev_day:0, prev_week:0, prev_month:0 }
         );
         setTrend(t1?.items ?? []);
         setQuick(q1 || { active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
@@ -63,7 +75,7 @@ export default function EconomicValueDashboard() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [apiBase, tenantId]);
 
   // ---------- helpers ----------
   const currency = (n) =>
@@ -74,17 +86,19 @@ export default function EconomicValueDashboard() {
       maximumFractionDigits: 0,
     }).format(n || 0);
 
+  // Format an ISO date (YYYY-MM-DD) as a calendar day without TZ shifts
   const fmtDay = (iso) => {
     if (!iso) return "";
     const [y, m, d] = iso.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, m - 1, d));
+    const dt = new Date(Date.UTC(y, m - 1, d)); // force UTC calendar day
     return new Intl.DateTimeFormat(undefined, {
       month: "short",
       day: "numeric",
-      timeZone: "UTC",
+     timeZone: "UTC",
     }).format(dt);
   };
 
+  // ---- map trend to recharts
   const trendSeries = useMemo(
     () =>
       (trend || []).map((row) => ({
@@ -96,13 +110,17 @@ export default function EconomicValueDashboard() {
     [trend]
   );
 
-  const last30 = trendSeries;
-  const lastPoint = last30[last30.length - 1] || { date: new Date().toISOString().slice(0, 10) };
+  const last30 = trendSeries; // we already asked for 30
+  const lastPoint = last30[last30.length - 1] || { date: new Date().toISOString().slice(0,10) };
 
+  // ---- totals: use yesterday when today's window is empty
   const totals = useMemo(() => {
-    const todayVal = Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || 0;
-    const weekVal = Number(summary.week) > 0 ? Number(summary.week) : Number(summary.prev_week) || 0;
-    const monthVal = Number(summary.month) > 0 ? Number(summary.month) : Number(summary.prev_month) || 0;
+    const todayVal =
+      Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || 0;
+    const weekVal  =
+      Number(summary.week)  > 0 ? Number(summary.week)  : Number(summary.prev_week)  || 0;
+    const monthVal =
+      Number(summary.month) > 0 ? Number(summary.month) : Number(summary.prev_month) || 0;
     return {
       today: todayVal,
       week: weekVal,
@@ -119,6 +137,7 @@ export default function EconomicValueDashboard() {
     allTime: 0,
   };
 
+  // lists
   const topVendors = useMemo(
     () => (vendors || []).map((r) => ({ name: r.company_name ?? "—", total: r.total_wages ?? 0 })),
     [vendors]
@@ -128,22 +147,31 @@ export default function EconomicValueDashboard() {
     [vessels]
   );
 
+  // ---- quick stats (real)
+   // Use yesterday when today has no data
   const activeVendorsTodayReal =
     Number(quick.active_vendors_today) > 0
       ? Number(quick.active_vendors_today)
       : Number(quick.active_vendors_yday) || 0;
 
   const todaysValueReal =
-    Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || Number(quick.yday_value) || 0;
+    Number(summary.today) > 0
+      ? Number(summary.today)
+      : Number(summary.prev_day) || Number(quick.yday_value) || 0;
 
-  const avgPerVendorToday = activeVendorsTodayReal ? Math.round(todaysValueReal / activeVendorsTodayReal) : 0;
+  const avgPerVendorToday = activeVendorsTodayReal
+    ? Math.round(todaysValueReal / activeVendorsTodayReal)
+    : 0;
   const dailyAvg30 = Number(quick.daily_avg_30) || 0;
-
+  
+  // ---------- small UI ----------
   const StatCard = ({ label, value, delta }) => {
     const up = delta >= 0;
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+          {label}
+        </div>
         <div className="mt-2 flex items-baseline gap-2">
           <div className="text-2xl font-bold text-slate-900">{currency(value)}</div>
           <div className={`text-xs font-semibold ${up ? "text-emerald-600" : "text-rose-600"}`}>
@@ -177,12 +205,14 @@ export default function EconomicValueDashboard() {
           Active Vendors: <span className="font-semibold text-slate-900">{p.activeVendors}</span>
         </div>
         <div className="text-slate-600">
-          Avg / Vendor: <span className="font-semibold text-slate-900">{currency(p.avgPerVendor)}</span>
+          Avg / Vendor:{" "}
+          <span className="font-semibold text-slate-900">{currency(p.avgPerVendor)}</span>
         </div>
       </div>
     );
   };
 
+  // ---------- layout ----------
   return (
     <div className="px-0">
       {loadErr && (
@@ -191,6 +221,7 @@ export default function EconomicValueDashboard() {
         </div>
       )}
 
+      {/* summary cards (LIVE) */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Today’s Value" value={totals.today} delta={deltas.today} />
         <StatCard label="This Week" value={totals.week} delta={deltas.week} />
@@ -198,79 +229,109 @@ export default function EconomicValueDashboard() {
         <StatCard label="All-Time" value={totals.allTime} delta={deltas.allTime} />
       </div>
 
+      {/* main grid */}
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-3">
+        {/* chart (LIVE) */}
         <div className="xl:col-span-2">
-          <Section title="30-Day Economic Trend" right={<span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>}>
+          <Section
+            title="30-Day Economic Trend"
+            right={<span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>}
+          >
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={last30} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="val" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopOpacity={0.35} />
-                      <stop offset="100%" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={fmtDay} fontSize={12} />
-                  <YAxis tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)} fontSize={12} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" tickFormatter={fmtDay} stroke="#94a3b8" fontSize={12} />
+                  <YAxis
+                    tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)}
+                    stroke="#94a3b8"
+                    fontSize={12}
+                  />
                   <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="value" strokeWidth={2} fill="url(#val)" />
+                  <Area type="monotone" dataKey="value" stroke="#0ea5e9" fill="url(#val)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </Section>
         </div>
 
+        {/* top vendors */}
         <div className="xl:col-span-1">
           <Section title={`Top Vendors by $${loading ? " (loading…)" : ""}`}>
-            <ul className="divide-y">
+            <ul className="divide-y divide-slate-200">
               {topVendors.map((v, i) => (
                 <li key={`${v.name}-${i}`} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <div className="grid h-8 w-8 place-items-center rounded-xl text-[11px] font-bold">{i + 1}</div>
-                    <div className="text-sm font-medium">{v.name}</div>
+                    <div className="grid h-8 w-8 place-items-center rounded-xl bg-sky-50 text-[11px] font-bold text-sky-700">
+                      {i + 1}
+                    </div>
+                    <div className="text-sm font-medium text-slate-800">{v.name}</div>
                   </div>
-                  <div className="text-sm font-semibold">{currency(v.total)}</div>
+                  <div className="text-sm font-semibold text-slate-900">{currency(v.total)}</div>
                 </li>
               ))}
-              {!loading && topVendors.length === 0 && <li className="py-4 text-sm text-slate-500">No data</li>}
+              {!loading && topVendors.length === 0 && (
+                <li className="py-4 text-sm text-slate-500">No data</li>
+              )}
             </ul>
           </Section>
         </div>
 
-        <div className="xl:col-span-1 order-last xl:order-0">
+        {/* top vessels */}
+        <div className="xl:col-span-1 order-last xl:order-none">
           <Section title={`Top Vessels by $${loading ? " (loading…)" : ""}`}>
-            <ul className="divide-y">
+            <ul className="divide-y divide-slate-200">
               {topVessels.map((v, i) => (
                 <li key={`${v.name}-${i}`} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <div className="grid h-8 w-8 place-items-center rounded-xl text-[11px] font-bold">{i + 1}</div>
-                    <div className="text-sm font-medium">{v.name}</div>
+                    <div className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-[11px] font-bold text-emerald-700">
+                      {i + 1}
+                    </div>
+                    <div className="text-sm font-medium text-slate-800">{v.name}</div>
                   </div>
-                  <div className="text-sm font-semibold">{currency(v.total)}</div>
+                  <div className="text-sm font-semibold text-slate-900">{currency(v.total)}</div>
                 </li>
               ))}
-              {!loading && topVessels.length === 0 && <li className="py-4 text-sm text-slate-500">No data</li>}
+              {!loading && topVessels.length === 0 && (
+                <li className="py-4 text-sm text-slate-500">No data</li>
+              )}
             </ul>
           </Section>
         </div>
 
+        {/* quick stats (LIVE) */}
         <div className="xl:col-span-2">
           <Section title="Quick Stats">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border p-4">
-                <div className="text-[11px] uppercase tracking-wider font-semibold">Active Vendors Today</div>
-                <div className="mt-2 text-2xl font-bold">{activeVendorsTodayReal}</div>
+              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Active Vendors Today
+                </div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">{activeVendorsTodayReal}</div>
                 <div className="text-xs text-slate-500">From daily vendor hours</div>
               </div>
-              <div className="rounded-xl border p-4">
-                <div className="text-[11px] uppercase tracking-wider font-semibold">Avg $ per Vendor (Today)</div>
-                <div className="mt-2 text-2xl font-bold">{currency(avgPerVendorToday)}</div>
+              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Avg $ per Vendor (Today)
+                </div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">
+                  {currency(avgPerVendorToday)}
+                </div>
                 <div className="text-xs text-slate-500">Today’s Value / Active Vendors</div>
               </div>
-              <div className="rounded-xl border p-4">
-                <div className="text-[11px] uppercase tracking-wider font-semibold">30-Day Daily Avg</div>
-                <div className="mt-2 text-2xl font-bold">{currency(Math.round(dailyAvg30))}</div>
+              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+                  30-Day Daily Avg
+                </div>
+                <div className="mt-2 text-2xl font-bold text-slate-900">
+                  {currency(Math.round(dailyAvg30))}
+                </div>
                 <div className="text-xs text-slate-500">Rolling mean over last 30 days</div>
               </div>
             </div>
