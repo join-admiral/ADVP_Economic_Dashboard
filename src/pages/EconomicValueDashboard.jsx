@@ -18,11 +18,28 @@ export default function EconomicValueDashboard({ apiBase }) {
   const [vendors, setVendors] = useState([]);
   const [vessels, setVessels] = useState([]);
   const [summary, setSummary] = useState({
-    today: 0, week: 0, month: 0, all_time: 0,
-    prev_day: 0, prev_week: 0, prev_month: 0,
+    today: 0,
+    week: 0,
+    month: 0,
+    all_time: 0,
+    prev_day: 0,
+    prev_week: 0,
+    prev_month: 0,
   });
   const [trend, setTrend] = useState([]); // [{d, value, active_vendors, avg_per_vendor}]
-  const [quick, setQuick] = useState({ active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
+  const [quick, setQuick] = useState({
+    active_vendors_today: 0,
+    today_value: 0,
+    daily_avg_30: 0,
+  });
+
+  // NEW: dashboard activity metrics for top-of-page stats
+  const [metrics, setMetrics] = useState({
+    active_vendors: 0,
+    checkins: 0,
+    checkouts: 0,
+    avg_time_on_site_mins: 0,
+  });
 
   const [loadErr, setLoadErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,18 +52,39 @@ export default function EconomicValueDashboard({ apiBase }) {
     setLoading(true);
 
     const base = apiBase.replace(/\/$/, "");
-   const fetchJson = (path) =>
-  fetch(`${base}/api/economics/${path}`, {
-    credentials: "include",
-    headers: { "X-Tenant-Id": tenantId },
-    cache: "no-store",
-  }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
+
+    const fetchJson = (path) =>
+      fetch(`${base}/api/economics/${path}`, {
+        credentials: "include",
+        headers: { "X-Tenant-Id": tenantId },
+        cache: "no-store",
+      }).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      });
+
+    // NEW: same approach the Dashboard uses—send header + ?tenantId= to be safe
+    const fetchActivity = (path) => {
+      const sep = path.includes("?") ? "&" : "?";
+      const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantId)}`;
+      return fetch(url, {
+        credentials: "include",
+        headers: { "X-Tenant-Id": tenantId },
+      }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        return j;
+      });
+    };
 
     const fmtDay = (iso) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
-    .format(new Date(Date.UTC(y, m - 1, d)));
-};
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(new Date(Date.UTC(y, m - 1, d)));
+    };
 
     Promise.all([
       fetchJson("vendors"),
@@ -54,16 +92,29 @@ export default function EconomicValueDashboard({ apiBase }) {
       fetchJson("summary"),
       fetchJson("trend?days=30"),
       fetchJson("quick-stats"),
+      // NEW: pull the 4 numbers from the activity metrics endpoint
+      fetchActivity(`/api/activity/metrics`),
     ])
-      .then(([v1, v2, s1, t1, q1]) => {
+      .then(([v1, v2, s1, t1, q1, m1]) => {
         if (!alive) return;
         setVendors(v1?.items ?? []);
         setVessels(v2?.items ?? []);
         setSummary(
-          s1 || { today:0, week:0, month:0, all_time:0, prev_day:0, prev_week:0, prev_month:0 }
+          s1 || {
+            today: 0,
+            week: 0,
+            month: 0,
+            all_time: 0,
+            prev_day: 0,
+            prev_week: 0,
+            prev_month: 0,
+          }
         );
         setTrend(t1?.items ?? []);
         setQuick(q1 || { active_vendors_today: 0, today_value: 0, daily_avg_30: 0 });
+        setMetrics(
+          m1 || { active_vendors: 0, checkins: 0, checkouts: 0, avg_time_on_site_mins: 0 }
+        );
       })
       .catch((e) => {
         if (!alive) return;
@@ -86,6 +137,12 @@ export default function EconomicValueDashboard({ apiBase }) {
       maximumFractionDigits: 0,
     }).format(n || 0);
 
+  const fmtHM = (mins) => {
+    const h = Math.floor((mins || 0) / 60);
+    const m = Math.max(0, (mins || 0) % 60);
+    return `${h}h ${String(m).padStart(2, "0")}m`;
+  };
+
   // Format an ISO date (YYYY-MM-DD) as a calendar day without TZ shifts
   const fmtDay = (iso) => {
     if (!iso) return "";
@@ -94,7 +151,7 @@ export default function EconomicValueDashboard({ apiBase }) {
     return new Intl.DateTimeFormat(undefined, {
       month: "short",
       day: "numeric",
-     timeZone: "UTC",
+      timeZone: "UTC",
     }).format(dt);
   };
 
@@ -111,14 +168,16 @@ export default function EconomicValueDashboard({ apiBase }) {
   );
 
   const last30 = trendSeries; // we already asked for 30
-  const lastPoint = last30[last30.length - 1] || { date: new Date().toISOString().slice(0,10) };
+  const lastPoint = last30[last30.length - 1] || {
+    date: new Date().toISOString().slice(0, 10),
+  };
 
   // ---- totals: use yesterday when today's window is empty
   const totals = useMemo(() => {
     const todayVal =
       Number(summary.today) > 0 ? Number(summary.today) : Number(summary.prev_day) || 0;
-    const weekVal  =
-      Number(summary.week)  > 0 ? Number(summary.week)  : Number(summary.prev_week)  || 0;
+    const weekVal =
+      Number(summary.week) > 0 ? Number(summary.week) : Number(summary.prev_week) || 0;
     const monthVal =
       Number(summary.month) > 0 ? Number(summary.month) : Number(summary.prev_month) || 0;
     return {
@@ -148,7 +207,7 @@ export default function EconomicValueDashboard({ apiBase }) {
   );
 
   // ---- quick stats (real)
-   // Use yesterday when today has no data
+  // Use yesterday when today has no data
   const activeVendorsTodayReal =
     Number(quick.active_vendors_today) > 0
       ? Number(quick.active_vendors_today)
@@ -163,8 +222,9 @@ export default function EconomicValueDashboard({ apiBase }) {
     ? Math.round(todaysValueReal / activeVendorsTodayReal)
     : 0;
   const dailyAvg30 = Number(quick.daily_avg_30) || 0;
-  
+
   // ---------- small UI ----------
+  // (currency StatCard left as-is)
   const StatCard = ({ label, value, delta }) => {
     const up = delta >= 0;
     return (
@@ -181,6 +241,14 @@ export default function EconomicValueDashboard({ apiBase }) {
       </div>
     );
   };
+
+  // NEW: simple numeric card for the activity metrics
+  const MetricCard = ({ label, value }) => (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-slate-900">{value}</div>
+    </div>
+  );
 
   const Section = ({ title, right, children }) => (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -221,10 +289,17 @@ export default function EconomicValueDashboard({ apiBase }) {
         </div>
       )}
 
-      {/* summary cards (LIVE) */}
-      <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
+      {/* NEW: bring over top 4 Dashboard stats */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <MetricCard label="Today Active Vendors" value={metrics.active_vendors} />
+        <MetricCard label="Today Check-ins" value={metrics.checkins} />
+        <MetricCard label="Toady Check-outs" value={metrics.checkouts} />
+        <MetricCard label="Today Avg. Time on Site" value={fmtHM(metrics.avg_time_on_site_mins)} />
+      </div>
 
-        <StatCard label="Today’s Value" value={totals.today} delta={deltas.today} />
+      {/* summary cards (LIVE) */}
+      <div className="mt-4 grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
+        <StatCard label="Yesterday Value" value={totals.today} delta={deltas.today} />
         <StatCard label="This Week" value={totals.week} delta={deltas.week} />
         <StatCard label="This Month" value={totals.month} delta={deltas.month} />
         <StatCard label="All-Time" value={totals.allTime} delta={deltas.allTime} />
@@ -236,7 +311,9 @@ export default function EconomicValueDashboard({ apiBase }) {
         <div className="xl:col-span-2">
           <Section
             title="30-Day Economic Trend"
-            right={<span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>}
+            right={
+              <span className="text-xs text-slate-500">Last updated {fmtDay(lastPoint.date)}</span>
+            }
           >
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -255,7 +332,13 @@ export default function EconomicValueDashboard({ apiBase }) {
                     fontSize={12}
                   />
                   <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="value" stroke="#0ea5e9" fill="url(#val)" strokeWidth={2} />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#0ea5e9"
+                    fill="url(#val)"
+                    strokeWidth={2}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -310,17 +393,16 @@ export default function EconomicValueDashboard({ apiBase }) {
         <div className="xl:col-span-2">
           <Section title="Quick Stats">
             <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
-
               <div className="rounded-xl border border-slate-200 p-3.5">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
-                  Active Vendors Today
+                  Total Vendors Visit Yesterday
                 </div>
                 <div className="mt-2 text-2xl font-bold text-slate-900">{activeVendorsTodayReal}</div>
                 <div className="text-xs text-slate-500">From daily vendor hours</div>
               </div>
               <div className="rounded-xl border border-slate-200 p-3.5">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
-                  Avg $ per Vendor (Today)
+                  Avg $ per Vendor (Yesterday)
                 </div>
                 <div className="mt-2 text-2xl font-bold text-slate-900">
                   {currency(avgPerVendorToday)}
