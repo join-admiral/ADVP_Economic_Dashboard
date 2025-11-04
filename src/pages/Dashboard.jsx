@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ComposedChart,
-  Area,
+  Bar,               // ⬅️ added
   Line,
   XAxis,
   YAxis,
@@ -11,6 +11,10 @@ import {
   CartesianGrid,
 } from "recharts";
 import { useTenant } from "../App";
+
+// logos (same assets as Topbar)
+import lightLogo from "../components/images/headerLogo.svg";
+import darkLogo from "../components/images/headerLogoDark.svg";
 
 /* ---------------------------- tiny UI primitives ---------------------------- */
 const Card = ({ className = "", children, title, right }) => (
@@ -45,6 +49,44 @@ const fmtHM = (mins) => {
   return `${h}h ${m.toString().padStart(2, "0")}m`;
 };
 
+// observe dark / light change (same behavior as Topbar)
+function useDarkModeFlag() {
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      const stored = localStorage.getItem("theme");
+      if (stored === "dark") return true;
+      if (stored === "light") return false;
+      return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const update = () => setIsDark(root.classList.contains("dark"));
+    update();
+
+    const obs = new MutationObserver(update);
+    obs.observe(root, { attributes: true, attributeFilter: ["class"] });
+
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const mediaCb = () => update();
+    media?.addEventListener?.("change", mediaCb);
+
+    const storageCb = () => update();
+    window.addEventListener("storage", storageCb);
+
+    return () => {
+      obs.disconnect();
+      media?.removeEventListener?.("change", mediaCb);
+      window.removeEventListener("storage", storageCb);
+    };
+  }, []);
+
+  return isDark;
+}
+
 /* ---------------------------- data fetching hook ---------------------------- */
 function useDashboardData({ apiBase, tenantKey, autoRefresh }) {
   const [state, setState] = useState({
@@ -55,8 +97,8 @@ function useDashboardData({ apiBase, tenantKey, autoRefresh }) {
       total_vendors_today: 0,
       avg_time_on_site_mins: 0,
     },
-    hourly: [],   // [{ hour, active, checkins, checkouts }]
-    feed: [],     // [{ id, vendor, company, action, target, at }]
+    hourly: [],
+    feed: [],
     topVendors: [],
     topVessels: [],
     error: "",
@@ -64,37 +106,31 @@ function useDashboardData({ apiBase, tenantKey, autoRefresh }) {
   });
 
   useEffect(() => {
-    if (!tenantKey) return; // wait until a site is selected
+    if (!tenantKey) return;
     let alive = true;
 
     const base = (apiBase || "").replace(/\/$/, "");
     const headers = { "X-Tenant-Id": String(tenantKey) };
 
-   // Activity endpoints — require query param tenantId (we also send header)
-const fetchActivity = (path) => {
-  const sep = path.includes("?") ? "&" : "?";
-  const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantKey)}`;
-  if (process.env.NODE_ENV !== "production") console.debug("[Dashboard] GET", url);
-  return fetch(url, { credentials: "include", headers }).then(async (r) => {
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-    return j;
-  });
-};
+    const fetchActivity = (path) => {
+      const sep = path.includes("?") ? "&" : "?";
+      const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantKey)}`;
+      return fetch(url, { credentials: "include", headers }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        return j;
+      });
+    };
 
-// Economics endpoints — some builds expect header only, others expect query param.
-// Send BOTH (header + ?tenantId=) to be fully compatible with your economics.js.
-const fetchEconomics = (path) => {
-  const sep = path.includes("?") ? "&" : "?";
-  const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantKey)}`;
-  if (process.env.NODE_ENV !== "production") console.debug("[Dashboard] GET", url);
-  return fetch(url, { credentials: "include", headers }).then(async (r) => {
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-    return j;
-  });
-};
-
+    const fetchEconomics = (path) => {
+      const sep = path.includes("?") ? "&" : "?";
+      const url = `${base}${path}${sep}tenantId=${encodeURIComponent(tenantKey)}`;
+      return fetch(url, { credentials: "include", headers }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        return j;
+      });
+    };
 
     async function load() {
       try {
@@ -102,21 +138,20 @@ const fetchEconomics = (path) => {
         setState((s) => ({ ...s, loading: true, error: "" }));
 
         const [m, h, f, v, b] = await Promise.all([
-        fetchActivity(`/api/activity/metrics`),
-        fetchActivity(`/api/activity/hourly`),
-        fetchActivity(`/api/activity/feed?limit=10`),
-        fetchEconomics(`/api/economics/vendors`),
-        fetchEconomics(`/api/economics/vessels`),
-      ]);
-
+          fetchActivity(`/api/activity/metrics`),
+          fetchActivity(`/api/activity/hourly`),
+          fetchActivity(`/api/activity/feed?limit=10`),
+          fetchEconomics(`/api/economics/vendors`),
+          fetchEconomics(`/api/economics/vessels`),
+        ]);
 
         if (!alive) return;
         setState({
           metrics: m || state.metrics,
           hourly: h?.items || [],
           feed: f?.items || [],
-topVendors: (v?.items || []).map((x) => x.company_name).filter(Boolean).slice(0, 3),
-  topVessels: (b?.items || []).map((x) => x.boat_name).filter(Boolean).slice(0, 3),
+          topVendors: (v?.items || []).map((x) => x.company_name).filter(Boolean).slice(0, 3),
+          topVessels: (b?.items || []).map((x) => x.boat_name).filter(Boolean).slice(0, 3),
           loading: false,
           error: "",
         });
@@ -138,18 +173,16 @@ topVendors: (v?.items || []).map((x) => x.company_name).filter(Boolean).slice(0,
     return () => {
       alive = false;
     };
-  }, [apiBase, tenantKey, autoRefresh]); // correct deps
+  }, [apiBase, tenantKey, autoRefresh]);
 
   return state;
 }
 
 /* --------------------------------- page ----------------------------------- */
 export default function Dashboard() {
-  // Get tenant from App context
   const { tenantId } = useTenant();
   const tenantKey = tenantId || undefined;
 
-  // Compute API base (same logic as App.jsx)
   const API_BASE = (
     import.meta?.env?.VITE_API_BASE_URL ||
     import.meta?.env?.VITE_API_BASE ||
@@ -157,6 +190,7 @@ export default function Dashboard() {
   ).replace(/\/$/, "");
 
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const isDark = useDarkModeFlag();
 
   const { metrics, hourly, feed, topVendors, topVessels } = useDashboardData({
     apiBase: API_BASE,
@@ -175,7 +209,7 @@ export default function Dashboard() {
         Check-ins
       </div>
       <div className="flex items-center gap-2">
-        <Dot className="bg-slate-800/80" />
+        <Dot className="bg-gray-500/80" /> {/* was slate-800; now neutral gray to match line */}
         Check-outs
       </div>
     </div>
@@ -189,12 +223,20 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* top stats */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      {/* top stats row — 3 stat boxes + logo column */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 items-center">
         <StatCard label="Active Vendors" value={metrics.active_vendors} />
         <StatCard label="Check-ins" value={metrics.checkins} />
         <StatCard label="Check-outs" value={metrics.checkouts} />
-        {/* (Flagged Vendors card removed) */}
+
+        {/* logo now aligned in the same row as the 3 boxes */}
+        <div className="flex justify-center items-center">
+          <img
+            src={isDark ? darkLogo : lightLogo}
+            alt="Logo"
+            className="h-12 md:h-14 xl:h-16 w-auto object-contain"
+          />
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -202,7 +244,7 @@ export default function Dashboard() {
         <div className="lg:col-span-3 flex flex-col gap-4">
           {/* chart */}
           <Card
-            title="Today's Vendor Activity "
+            title="Today's Vendor Activity (7AM - 7PM)"  // ⬅️ updated title
             right={
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 {chartLegend}
@@ -229,40 +271,48 @@ export default function Dashboard() {
               <div className="h-[280px] min-w-full">
                 <ResponsiveContainer key={hourly?.length || 0} width="100%" height="100%">
                   <ComposedChart data={hourly || []}>
-                    <defs>
-                      <linearGradient id="gActive" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="currentColor" stopOpacity="0.35" />
-                        <stop offset="100%" stopColor="currentColor" stopOpacity="0.05" />
-                      </linearGradient>
-                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="hour" tick={{ fontSize: 12, fill: "#6b7280" }} />
                     <YAxis
                       yAxisId="left"
                       tick={{ fontSize: 12, fill: "#6b7280" }}
                       domain={[0, "dataMax + 1"]}
-                      label={{ value: "Active Vendors", angle: -90, position: "insideLeft", fill: "#6b7280", fontSize: 11 }}
+                      label={{
+                        value: "Active Vendors",
+                        angle: -90,
+                        position: "insideLeft",
+                        fill: "#6b7280",
+                        fontSize: 11,
+                      }}
                     />
                     <YAxis
                       yAxisId="right"
                       orientation="right"
                       tick={{ fontSize: 12, fill: "#6b7280" }}
                       domain={[0, "dataMax + 1"]}
-                      label={{ value: "Check-ins/Check-outs", angle: -90, position: "insideRight", fill: "#6b7280", fontSize: 11 }}
+                      label={{
+                        value: "Check-ins/Check-outs",
+                        angle: -90,
+                        position: "insideRight",
+                        fill: "#6b7280",
+                        fontSize: 11,
+                      }}
                     />
                     <Tooltip
                       wrapperStyle={{ outline: "none" }}
                       contentStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
                     />
-                    {/* Area = Active Vendors */}
-                    <Area
+
+                    {/* Bars = Active Vendors (replaces Area) */}
+                    <Bar
                       yAxisId="left"
-                      type="monotone"
                       dataKey="active"
-                      fill="url(#gActive)"
-                      stroke="#94a3b8"
-                      strokeWidth={2}
+                      fill="#9CA3AF"
+                      stroke="#9CA3AF"
+                      barSize={26}
+                      radius={[4, 4, 0, 0]}
                     />
+
                     {/* Lines = checkins & checkouts */}
                     <Line
                       yAxisId="right"
@@ -270,17 +320,17 @@ export default function Dashboard() {
                       dataKey="checkins"
                       stroke="#fb923c"
                       strokeWidth={2}
-                      dot={{ r: 2 }}
-                      activeDot={{ r: 3 }}
+                      dot={{ r: 4, strokeWidth: 2, fill: "#fff" }}
+                      activeDot={{ r: 5 }}
                     />
                     <Line
                       yAxisId="right"
                       type="monotone"
                       dataKey="checkouts"
-                      stroke="#0f172a"
+                      stroke="#888888"       // ⬅️ neutral gray to match legend
                       strokeWidth={2}
-                      dot={{ r: 2 }}
-                      activeDot={{ r: 3 }}
+                      dot={{ r: 4, strokeWidth: 2, fill: "#fff" }}
+                      activeDot={{ r: 5 }}
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -296,15 +346,16 @@ export default function Dashboard() {
                   <div className="flex items-start gap-3">
                     <img
                       alt={ev.vendor}
-                      src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(ev.vendor || "A")}`}
+                      src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
+                        ev.vendor || "A"
+                      )}`}
                       className="mt-0.5 h-9 w-9 rounded-full border border-slate-200"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm text-slate-800">
                         <span className="font-semibold">{ev.vendor || "—"}</span>{" "}
                         from <span className="font-medium">{ev.company || "—"}</span>{" "}
-                        {ev.action}{" "}
-                        <span className="font-medium">{ev.target || "—"}</span>{" "}
+                        {ev.action} <span className="font-medium">{ev.target || "—"}</span>{" "}
                         <button
                           className="ml-1 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
                           onClick={() => alert("Edit details")}
@@ -321,13 +372,15 @@ export default function Dashboard() {
                 </li>
               ))}
               {!feed.length && (
-                <li className="px-4 py-6 text-sm text-slate-500">No activity yet for the selected day.</li>
+                <li className="px-4 py-6 text-sm text-slate-500">
+                  No activity yet for the selected day.
+                </li>
               )}
             </ul>
           </Card>
         </div>
 
-        {/* right rail */}
+        {/* right rail — details */}
         <div className="flex flex-col gap-4">
           <Card title="Total Vendors Today">
             <div className="px-4 py-5 text-2xl font-bold text-slate-900">

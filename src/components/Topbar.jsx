@@ -1,7 +1,8 @@
 // src/components/Topbar.jsx
 import React from "react";
+import lightLogo from "./images/headerLogo.svg";
+import darkLogo from "./images/headerLogoDark.svg";
 
-/* icons */
 const Icon = {
   sun: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -21,7 +22,6 @@ const Icon = {
   ),
 };
 
-/* util: read initial theme */
 function getInitialIsDark() {
   if (typeof window === "undefined") return false;
   const stored = localStorage.getItem("theme");
@@ -137,6 +137,9 @@ function SiteMenu({ buttonLabel, Marinas, selectedSiteId, onChangeSite, onFallba
 }
 
 export default function Topbar({
+  title = "Dashboard",
+  switchLabel = "Go to Economic Dashboard",
+  onSwitchPage = () => {},
   siteName = "Select site",
   Marinas = [],
   selectedSiteId,
@@ -155,16 +158,34 @@ export default function Topbar({
     "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 " +
     "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]";
 
+  const logoSrc = isDark ? darkLogo : lightLogo;
+
   return (
     <header className="sticky top-0 z-20 backdrop-blur bg-[hsl(var(--card))] text-[hsl(var(--foreground))] border-b border-[hsl(var(--border))]">
       <div className="flex h-16 items-center justify-between px-8">
-        {/* LEFT: Title */}
-        <h1 className="text-base md:text-lg font-semibold tracking-tight">
-          Economic Dashboard
-        </h1>
-
-        {/* RIGHT: theme toggle + site selector */}
+        {/* LEFT: Logo + Title */}
         <div className="flex items-center gap-3">
+          <img src={logoSrc} alt="Logo" className="h-8 w-auto" />
+          <h1 className="text-base md:text-lg font-semibold tracking-tight">
+            {title}
+          </h1>
+        </div>
+
+        {/* RIGHT: two-way switch + theme toggle + site selector */}
+        <div className="flex items-center gap-3">
+          {/* Two-way switch button */}
+          {/* Two-way switch button (styled) */}
+<button
+  onClick={onSwitchPage}
+  className="inline-flex items-center justify-center h-10 px-5 rounded-lg border border-[hsl(var(--border))]
+             bg-[hsl(var(--accent))]/10 hover:bg-[hsl(var(--accent))]/20 text-[hsl(var(--foreground))]
+             font-medium text-sm transition-all duration-200 shadow-sm"
+>
+  {switchLabel}
+</button>
+
+
+          {/* Theme toggle */}
           <button
             className={`${ghost} h-10 w-10 rounded-full px-0 py-2`}
             onClick={() => setIsDark((v) => !v)}

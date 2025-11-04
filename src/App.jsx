@@ -1,6 +1,6 @@
 // src/App.jsx
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import Topbar from "./components/Topbar";
 
@@ -84,45 +84,61 @@ export default function App() {
   const currentSiteName =
     marinas.find((s) => s.id === selectedSiteId)?.name || "Select site";
 
+  /* ---------- Shell with two-way page switch ---------- */
+  function Shell() {
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    const isEcon = location.pathname === "/economic-value";
+    const pageTitle = isEcon ? "Economic Dashboard" : "Dashboard";
+    const buttonLabel = isEcon ? "Go to Main Dashboard" : "Go to Economic Dashboard";
+
+    const handleSwitchPage = () => {
+      if (isEcon) navigate("/"); // switch back to main dashboard
+      else navigate("/economic-value"); // go to economic dashboard
+    };
+
+    return (
+      <>
+        <Topbar
+          title={pageTitle}
+          siteName={currentSiteName}
+          Marinas={marinas}
+          selectedSiteId={selectedSiteId}
+          onChangeSite={handleChangeSite}
+          onOpenSettings={() => console.log("Settings opened")}
+          onOpenNotifications={() => console.log("Notifications opened")}
+          onOpenProfile={() => console.log("Profile opened")}
+          onSwitchPage={handleSwitchPage}
+          switchLabel={buttonLabel}
+        />
+
+        {loadErr && (
+          <div className="mx-6 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            {loadErr}
+          </div>
+        )}
+
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/activity" element={<ActivityLog apiBase={API_BASE} />} />
+          <Route path="/boats" element={<Boats apiBase={API_BASE} />} />
+          <Route path="/vendors" element={<Vendors apiBase={API_BASE} />} />
+          <Route path="/marina-activity" element={<MarinaActivity />} />
+          <Route path="/settings" element={<SiteSettings />} />
+          <Route path="/users" element={<Users />} />
+          <Route path="/economic-value" element={<EconomicValueDashboard apiBase={API_BASE} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </>
+    );
+  }
+
   return (
     <TenantContext.Provider value={{ tenantId: selectedSiteId, setTenantId: setSelectedSiteId }}>
       <BrowserRouter>
-        {/* No Sidebar — full-width layout */}
         <div className="min-h-screen bg-slate-50 dark:bg-[hsl(var(--background))]">
-          <Topbar
-            siteName={currentSiteName}
-            Marinas={marinas}
-            selectedSiteId={selectedSiteId}
-            onChangeSite={handleChangeSite}
-            onOpenSettings={() => console.log("Settings opened")}
-            onOpenNotifications={() => console.log("Notifications opened")}
-            onOpenProfile={() => console.log("Profile opened")}
-          />
-
-          {loadErr && (
-            <div className="mx-6 mt-3 rounded-xl border border-amber-2 00 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-              {loadErr}
-            </div>
-          )}
-
-          <Routes>
-            {/* Economic Dashboard is now the homepage */}
-            <Route path="/" element={<EconomicValueDashboard apiBase={API_BASE} />} />
-
-            {/* Keep other pages accessible directly */}
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/activity" element={<ActivityLog apiBase={API_BASE} />} />
-            <Route path="/boats" element={<Boats apiBase={API_BASE} />} />
-            <Route path="/vendors" element={<Vendors apiBase={API_BASE} />} />
-            <Route path="/marina-activity" element={<MarinaActivity />} />
-            <Route path="/settings" element={<SiteSettings />} />
-            <Route path="/users" element={<Users />} />
-
-            {/* Keep the old /economic-value route working too */}
-            <Route path="/economic-value" element={<EconomicValueDashboard apiBase={API_BASE} />} />
-
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Shell />
         </div>
       </BrowserRouter>
     </TenantContext.Provider>
