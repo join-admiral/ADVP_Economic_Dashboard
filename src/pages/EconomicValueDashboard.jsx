@@ -4,6 +4,9 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
+  Cell,
   CartesianGrid,
   XAxis,
   YAxis,
@@ -12,10 +15,10 @@ import {
 import { useTenant } from "../App";
 
 export default function EconomicValueDashboard({ apiBase }) {
-  const { tenantId } = useTenant(); // may be a slug/name OR a number
+  const { tenantId } = useTenant();
 
   // ---- server data ----
-  const [resolvedTenantId, setResolvedTenantId] = useState(null); // numeric tenant_id
+  const [resolvedTenantId, setResolvedTenantId] = useState(null);
   const [vendors, setVendors] = useState([]);
   const [vessels, setVessels] = useState([]);
   const [summary, setSummary] = useState({
@@ -26,7 +29,7 @@ export default function EconomicValueDashboard({ apiBase }) {
     active_vendors_yday: 0,
     cutoff: null,
   });
-  const [trend, setTrend] = useState([]); // [{ d, value }]
+  const [trend, setTrend] = useState([]);
   const [quick, setQuick] = useState({ daily_avg_30: 0, cutoff: null });
 
   const [loadErr, setLoadErr] = useState("");
@@ -35,6 +38,10 @@ export default function EconomicValueDashboard({ apiBase }) {
   // ---- chart filter ----
   const [mode, setMode] = useState("day");
   const WINDOW = { day: 30, week: 12, month: 6 };
+
+  // ✅ Show all toggle (no search/filter)
+  const [showAllVendors, setShowAllVendors] = useState(false);
+  const [showAllVessels, setShowAllVessels] = useState(false);
 
   // ---------- helpers ----------
   const currency = (n) =>
@@ -52,6 +59,12 @@ export default function EconomicValueDashboard({ apiBase }) {
     return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(dt);
   };
 
+  const fmtMonth = (isoYYYYMM01) => {
+    if (!isoYYYYMM01) return "";
+    const d = new Date(isoYYYYMM01 + "T00:00:00Z");
+    return d.toLocaleString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
+  };
+
   const toISO = (date) =>
     `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
       date.getUTCDate()
@@ -64,6 +77,7 @@ export default function EconomicValueDashboard({ apiBase }) {
     dt.setUTCDate(dt.getUTCDate() - (day - 1));
     return toISO(dt);
   };
+  
   const startOfMonth = (iso) => iso.slice(0, 7) + "-01";
 
   // ---------- resolve tenant to numeric id ----------
@@ -76,31 +90,21 @@ export default function EconomicValueDashboard({ apiBase }) {
       return;
     }
 
-    // fetch marinas and resolve slug/name -> id
     const base = apiBase.replace(/\/$/, "");
     fetch(`${base}/api/marinas`, { credentials: "include", cache: "no-store" })
       .then((r) => r.json())
       .then((list) => {
-        // list can be an array or {items:[...]} depending on your endpoint; handle both
         const items = Array.isArray(list) ? list : list?.items || [];
         const target = String(tenantId).toLowerCase();
 
-        // match by slug or name or explicit id field
         const match =
           items.find((m) => String(m.slug || "").toLowerCase() === target) ||
           items.find((m) => String(m.name || m.marina_name || "").toLowerCase() === target) ||
           items.find((m) => String(m.tenant_id || m.id || "").toLowerCase() === target);
 
-        const id =
-          Number(match?.tenant_id ?? match?.id ?? null) ||
-          (Number(tenantId) || null);
+        const id = Number(match?.tenant_id ?? match?.id ?? null) || (Number(tenantId) || null);
 
-        if (!id) {
-          console.warn("Could not resolve tenant id for", tenantId, "from", items);
-          setResolvedTenantId(null);
-        } else {
-          setResolvedTenantId(id);
-        }
+        setResolvedTenantId(id || null);
       })
       .catch((e) => {
         console.error("Failed to resolve tenant id:", e);
@@ -118,7 +122,6 @@ export default function EconomicValueDashboard({ apiBase }) {
 
     const base = apiBase.replace(/\/$/, "");
     const params = (path) => {
-      // send both header + query param (some older routes use query param)
       const url = `${base}/api/economics/${path}${
         path.includes("?") ? "&" : "?"
       }tenantId=${encodeURIComponent(resolvedTenantId)}`;
@@ -181,7 +184,7 @@ export default function EconomicValueDashboard({ apiBase }) {
   const trendSeries = useMemo(
     () =>
       (trend || []).map((row) => ({
-        date: row.d, // YYYY-MM-DD
+        date: row.d,
         value: Number(row.value) || 0,
       })),
     [trend]
@@ -200,10 +203,7 @@ export default function EconomicValueDashboard({ apiBase }) {
       }
       return Array.from(map.values())
         .sort((a, b) => (a.date < b.date ? -1 : 1))
-        .map((r) => ({
-          date: r.date,
-          value: r.value,
-        }));
+        .map((r) => ({ date: r.date, value: r.value }));
     };
     return {
       day: trendSeries,
@@ -213,97 +213,182 @@ export default function EconomicValueDashboard({ apiBase }) {
   }, [trendSeries]);
 
   const windowed = useMemo(() => {
-    const arr = aggregated[mode] || [];
-    return arr.slice(-WINDOW[mode]);
-  }, [aggregated, mode]);
+    const all = aggregated[mode] || [];
+    return all.slice(-WINDOW[mode]);
+  }, [aggregated, mode, WINDOW]);
 
-  const lastPoint = windowed[windowed.length - 1] || { date: new Date().toISOString().slice(0, 10) };
+  // ✅ Sort vendors/vessels by wages (no search, no filter options)
+  const sortedVendors = useMemo(() => {
+    return [...vendors].sort((a, b) => (b.total_wages || 0) - (a.total_wages || 0));
+  }, [vendors]);
 
-  // ---- totals (show *yesterday*, not today) ----
+  const sortedVessels = useMemo(() => {
+    return [...vessels].sort((a, b) => (b.total_wages || 0) - (a.total_wages || 0));
+  }, [vessels]);
+
+  const displayedVendors = showAllVendors ? sortedVendors : sortedVendors.slice(0, 10);
+  const displayedVessels = showAllVessels ? sortedVessels : sortedVessels.slice(0, 10);
+
+  // ---- totals for stat cards ----
   const totals = useMemo(
     () => ({
-      yday: Number(summary.yday_value) || 0,
-      week: Number(summary.week) || 0,
-      month: Number(summary.month) || 0,
-      allTime: Number(summary.all_time) || 0,
+      yday: currency(summary.yday_value),
+      week: currency(summary.week),
+      month: currency(summary.month),
+      allTime: currency(summary.all_time),
     }),
     [summary]
   );
 
-  const activeVendorsYesterday = Number(summary.active_vendors_yday) || 0;
-  const ydayValue = totals.yday;
-  const avgPerVendorYesterday =
-    activeVendorsYesterday > 0 ? Math.round(ydayValue / activeVendorsYesterday) : 0;
+  const activeVendorsYesterday = summary.active_vendors_yday || 0;
+  const avgPerVendorYesterday = activeVendorsYesterday > 0 ? summary.yday_value / activeVendorsYesterday : 0;
+  const dailyAvg30 = quick.daily_avg_30 || 0;
 
-  const dailyAvg30 = Number(quick.daily_avg_30) || 0;
-
-  // ---------- small UI ----------
-  const StatCard = ({ label, value, isMoney = true }) => (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <div className="text-2xl font-bold text-slate-900">{isMoney ? currency(value) : value}</div>
+  // ---- sub-components ----
+  const Section = ({ title, right, children }) => (
+    <div className="relative rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 shadow-lg shadow-slate-200/50 backdrop-blur-sm overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 pointer-events-none" />
+      <div className="relative">
+        {(title || right) && (
+          <div className="flex items-center justify-between border-b border-slate-200/60 bg-white/80 backdrop-blur-sm px-5 py-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              {title}
+            </h3>
+            {right}
+          </div>
+        )}
+        <div className="px-5 py-4">{children}</div>
       </div>
     </div>
   );
 
-  const Section = ({ title, right, children }) => (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">{title}</h3>
-        {right}
+  const StatCard = ({ label, value }) => (
+    <div className="group relative rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-5 shadow-lg shadow-slate-200/50 backdrop-blur-sm overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-blue-200/30 hover:-translate-y-0.5">
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-transparent to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+      <div className="relative">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
+          {label}
+        </div>
+        <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-slate-600">
+          {value}
+        </div>
       </div>
-      {children}
-    </section>
+    </div>
   );
 
-  const CustomTooltip = ({ active, payload, label }) => {
+  const CustomTooltip = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
-    const p = payload[0]?.payload;
-    const fmtLabel =
-      mode === "day"
-        ? fmtDay(label)
-        : mode === "week"
-        ? `Week of ${fmtDay(label)}`
-        : new Intl.DateTimeFormat(undefined, { month: "short", year: "numeric" }).format(
-            new Date(label + "T00:00:00Z")
-          );
+    const data = payload[0].payload;
+    const label = mode === "day" ? fmtDay(data.date) : mode === "month" ? fmtMonth(data.date) : data.date;
     return (
-      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm text-sm">
-        <div className="font-semibold text-slate-800">{fmtLabel}</div>
-        <div className="mt-1 text-slate-600">
-          Value: <span className="font-semibold text-slate-900">{currency(p.value)}</span>
-        </div>
+      <div className="rounded-xl border border-slate-300/80 bg-white/95 backdrop-blur-md px-4 py-3 shadow-2xl">
+        <div className="text-xs font-semibold text-slate-600 mb-1">{label}</div>
+        <div className="text-lg font-bold text-slate-900">{currency(data.value)}</div>
       </div>
     );
   };
 
+  const renderChart = () => {
+    if (mode === "day") {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={windowed}>
+            <defs>
+              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.4} />
+                <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tickFormatter={fmtDay}
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              stroke="#cbd5e1"
+            />
+            <YAxis
+              tickFormatter={(v) => currency(v)}
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              stroke="#cbd5e1"
+              width={60}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke="#3b82f6"
+              strokeWidth={3}
+              fill="url(#colorValue)"
+              animationDuration={800}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      );
+    } else {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={windowed}>
+            <defs>
+              <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9} />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity={0.7} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tickFormatter={mode === "month" ? fmtMonth : (d) => d}
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              stroke="#cbd5e1"
+            />
+            <YAxis
+              tickFormatter={(v) => currency(v)}
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              stroke="#cbd5e1"
+              width={60}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+              {windowed.map((entry, index) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={index === windowed.length - 1 ? "#cbd5e1" : "url(#barGradient)"}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
+  };
+
   // ---------- layout ----------
   return (
-    <div className="px-4 sm:px-6">
+    <div className="px-4 sm:px-6 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 min-h-screen py-6">
       {loadErr && (
-        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700 shadow-lg">
           {loadErr}
         </div>
       )}
 
       {/* summary cards */}
-      <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
-        <StatCard label="Yesterday’s Value" value={totals.yday} />
+      <div className="grid min-w-0 grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label="Yesterday's Value" value={totals.yday} />
         <StatCard label="This Week" value={totals.week} />
         <StatCard label="This Month" value={totals.month} />
         <StatCard label="All-Time" value={totals.allTime} />
       </div>
 
       {/* main grid */}
-      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
         {/* chart - left, spans 2 */}
         <div className="xl:col-span-2">
           <Section
             title="Economic Trend"
             right={
-              <div className="flex items-center gap-2">
-                <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex rounded-xl border border-slate-300 bg-white/80 backdrop-blur-sm p-1 shadow-md">
                   {[
                     { key: "day", label: "Days" },
                     { key: "week", label: "Weeks" },
@@ -313,148 +398,147 @@ export default function EconomicValueDashboard({ apiBase }) {
                       key={opt.key}
                       onClick={() => setMode(opt.key)}
                       className={
-                        "px-3 py-1.5 text-xs font-medium rounded-md transition-colors " +
-                        (mode === opt.key ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100")
+                        "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200 " +
+                        (mode === opt.key 
+                          ? "bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30" 
+                          : "text-slate-600 hover:bg-slate-100")
                       }
                     >
                       {opt.label}
                     </button>
                   ))}
                 </div>
-                <span className="text-xs text-slate-500">
-                  Showing last {WINDOW[mode]} {mode}
-                  {WINDOW[mode] > 1 ? "s" : ""}
-                </span>
-                <span className="text-xs text-slate-500">
-                  Last updated {fmtDay(lastPoint.date)}
-                  {summary.cutoff ? ` • Using last completed day: ${fmtDay(summary.cutoff)}` : ""}
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                  {mode === "day" ? "Area" : "Bar"} • Last {WINDOW[mode]}
                 </span>
               </div>
             }
           >
-            <div className="h-[300px] w-full min-h-[300px]">
-              {windowed.length > 0 && (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={windowed} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="evFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.04} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis
-                      dataKey="date"
-                      tickFormatter={(v) =>
-                        mode === "day"
-                          ? fmtDay(v)
-                          : mode === "week"
-                          ? `Wk of ${fmtDay(v)}`
-                          : new Intl.DateTimeFormat(undefined, { month: "short", year: "numeric" }).format(
-                              new Date(v + "T00:00:00Z")
-                            )
-                      }
-                      tickMargin={8}
-                      stroke="#94a3b8"
-                      fontSize={12}
-                    />
-                    <YAxis
-                      tickFormatter={(val) => (val >= 1000 ? `${Math.round(val / 1000)}k` : val)}
-                      stroke="#94a3b8"
-                      fontSize={12}
-                      width={50}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="value"
-                      name={mode === "day" ? "Daily Value" : mode === "week" ? "Weekly Value" : "Monthly Value"}
-                      stroke="#38bdf8"
-                      strokeWidth={2.5}
-                      fill="url(#evFill)"
-                      dot={false}
-                      activeDot={{ r: 3 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+            <div className="h-[320px] w-full min-h-[320px]">
+              {windowed.length > 0 && renderChart()}
             </div>
           </Section>
         </div>
 
-        {/* QUICK STATS in the right rail */}
+        {/* QUICK STATS */}
         <div className="xl:col-span-1">
           <Section title="Quick Stats">
-            <div className="grid grid-cols-1 gap-3">
-              <div className="rounded-xl border border-slate-200 p-3.5">
-                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+            <div className="grid grid-cols-1 gap-4">
+              <div className="rounded-xl border border-slate-200/80 bg-gradient-to-br from-white to-blue-50/30 p-4 shadow-md hover:shadow-lg transition-shadow duration-200">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">
                   Active Vendors Yesterday
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">{activeVendorsYesterday}</div>
-                <div className="text-xs text-slate-500">From daily vendor hours</div>
+                <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-blue-600">
+                  {activeVendorsYesterday}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">From daily vendor hours</div>
               </div>
 
-              <div className="rounded-xl border border-slate-200 p-3.5">
-                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+              <div className="rounded-xl border border-slate-200/80 bg-gradient-to-br from-white to-purple-50/30 p-4 shadow-md hover:shadow-lg transition-shadow duration-200">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">
                   Avg $ per Vendor (Yesterday)
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
+                <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-purple-600">
                   {currency(avgPerVendorYesterday)}
                 </div>
-                <div className="text-xs text-slate-500">Yesterday’s Value / Active Vendors</div>
+                <div className="text-xs text-slate-500 mt-1">Yesterday's Value / Active Vendors</div>
               </div>
 
-              <div className="rounded-xl border border-slate-200 p-3.5">
-                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+              <div className="rounded-xl border border-slate-200/80 bg-gradient-to-br from-white to-emerald-50/30 p-4 shadow-md hover:shadow-lg transition-shadow duration-200">
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">
                   30-Day Daily Avg
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
+                <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-emerald-600">
                   {currency(Math.round(dailyAvg30))}
                 </div>
-                <div className="text-xs text-slate-500">Rolling mean over last 30 days</div>
+                <div className="text-xs text-slate-500 mt-1">Rolling mean over last 30 days</div>
               </div>
             </div>
           </Section>
         </div>
 
-        {/* ROW: Top lists */}
-        <div className="xl:col-span-3 grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <Section title={`Top Vendors by $${loading ? " (loading…)" : ""}`}>
-            <ul className="divide-y divide-slate-200">
-              {vendors.map((r, i) => (
-                <li key={`${r.company_name}-${i}`} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-8 w-8 place-items-center rounded-xl bg-sky-50 text-[11px] font-bold text-sky-700">
-                      {i + 1}
+        {/* TOP VENDORS & VESSELS */}
+        <div className="xl:col-span-3 grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {/* TOP VENDORS */}
+          <Section
+            title={`Top Vendors by $${loading ? " (loading…)" : ""}`}
+            right={<span className="text-xs font-bold text-slate-500">Total: {vendors.length}</span>}
+          >
+            <div className={`${showAllVendors ? 'max-h-[600px]' : 'max-h-auto'} overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100`}>
+              <ul className="divide-y divide-slate-200/60">
+                {displayedVendors.map((r, i) => (
+                  <li key={`${r.company_name}-${i}`} className="flex items-center justify-between py-4 px-2 hover:bg-blue-50/30 transition-colors duration-150 rounded-lg">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-xs font-black text-white shadow-lg shadow-blue-500/30">
+                        {i + 1}
+                      </div>
+                      <div className="text-sm font-semibold text-slate-800 truncate" title={r.company_name}>
+                        {r.company_name ?? "—"}
+                      </div>
                     </div>
-                    <div className="text-sm font-medium text-slate-800">{r.company_name ?? "—"}</div>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-900">{currency(r.total_wages ?? 0)}</div>
-                </li>
-              ))}
-              {!loading && (vendors || []).length === 0 && (
-                <li className="py-4 text-sm text-slate-500">No data</li>
-              )}
-            </ul>
+                    <div className="flex flex-col items-end flex-shrink-0 ml-4 gap-1">
+                      <div className="text-base font-bold text-slate-900">{currency(r.total_wages ?? 0)}</div>
+                      <div className="text-xs font-medium text-slate-500">{r.hours?.toFixed(1)}h</div>
+                    </div>
+                  </li>
+                ))}
+                {!loading && displayedVendors.length === 0 && (
+                  <li className="py-6 text-sm text-slate-500 text-center">
+                    No data available
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            {sortedVendors.length > 10 && (
+              <button
+                onClick={() => setShowAllVendors(!showAllVendors)}
+                className="mt-4 w-full px-5 py-3 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
+              >
+                {showAllVendors ? `Show Less` : `Show All ${sortedVendors.length} Vendors`}
+              </button>
+            )}
           </Section>
 
-          <Section title={`Top Vessels by $${loading ? " (loading…)" : ""}`}>
-            <ul className="divide-y divide-slate-200">
-              {vessels.map((r, i) => (
-                <li key={`${r.boat_name}-${i}`} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-[11px] font-bold text-emerald-700">
-                      {i + 1}
+          {/* TOP VESSELS */}
+          <Section
+            title={`Top Vessels by $${loading ? " (loading…)" : ""}`}
+            right={<span className="text-xs font-bold text-slate-500">Total: {vessels.length}</span>}
+          >
+            <div className={`${showAllVessels ? 'max-h-[600px]' : 'max-h-auto'} overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100`}>
+              <ul className="divide-y divide-slate-200/60">
+                {displayedVessels.map((r, i) => (
+                  <li key={`${r.boat_name}-${i}`} className="flex items-center justify-between py-4 px-2 hover:bg-emerald-50/30 transition-colors duration-150 rounded-lg">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-xs font-black text-white shadow-lg shadow-emerald-500/30">
+                        {i + 1}
+                      </div>
+                      <div className="text-sm font-semibold text-slate-800 truncate" title={r.boat_name}>
+                        {r.boat_name ?? "—"}
+                      </div>
                     </div>
-                    <div className="text-sm font-medium text-slate-800">{r.boat_name ?? "—"}</div>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-900">{currency(r.total_wages ?? 0)}</div>
-                </li>
-              ))}
-              {!loading && (vessels || []).length === 0 && (
-                <li className="py-4 text-sm text-slate-500">No data</li>
-              )}
-            </ul>
+                    <div className="flex flex-col items-end flex-shrink-0 ml-4 gap-1">
+                      <div className="text-base font-bold text-slate-900">{currency(r.total_wages ?? 0)}</div>
+                      <div className="text-xs font-medium text-slate-500">{r.hours?.toFixed(1)}h</div>
+                    </div>
+                  </li>
+                ))}
+                {!loading && displayedVessels.length === 0 && (
+                  <li className="py-6 text-sm text-slate-500 text-center">
+                    No data available
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            {sortedVessels.length > 10 && (
+              <button
+                onClick={() => setShowAllVessels(!showAllVessels)}
+                className="mt-4 w-full px-5 py-3 text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-all duration-200 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40"
+              >
+                {showAllVessels ? `Show Less` : `Show All ${sortedVessels.length} Vessels`}
+              </button>
+            )}
           </Section>
         </div>
       </div>
